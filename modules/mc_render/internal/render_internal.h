@@ -80,6 +80,13 @@ typedef struct {
 
     /* Window dimensions */
     uint32_t                 width, height;
+
+    /* UI pipeline */
+    VkPipelineLayout         ui_pipeline_layout;
+    VkPipeline               ui_pipeline;
+    VkBuffer                 ui_vertex_buffer;
+    VkDeviceMemory           ui_vertex_memory;
+    uint32_t                 ui_vertex_capacity; /* bytes */
 } render_state_t;
 
 /* Global render state -- defined in vk_init.c */
@@ -99,7 +106,15 @@ mc_error_t vk_create_command_pool(void);
 mc_error_t vk_create_sync_objects(void);
 mc_error_t vk_create_pipeline(void);
 
+/* UI pipeline */
+mc_error_t vk_create_ui_pipeline(void);
+void       vk_destroy_ui_pipeline(void);
+void       vk_draw_ui(VkCommandBuffer cmd);
+
 uint32_t   vk_find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties);
+mc_error_t vk_create_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                            VkMemoryPropertyFlags props,
+                            VkBuffer *buffer, VkDeviceMemory *memory);
 
 /* Mesh building -- returns a heap-allocated chunk_mesh_t (caller frees).
  * Returns NULL if section is empty or allocation fails. */

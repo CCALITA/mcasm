@@ -23,4 +23,9 @@ void       mc_ui_show_debug(vec3_t pos, float fps, uint32_t chunk_count, uint32_
 
 void       mc_ui_render(void);
 
+/* Copy buffered UI vertices into dst (up to max_bytes).
+   Returns the number of vertices copied.
+   Each vertex is 16 bytes: float x, y, u, v (NDC coordinates). */
+uint32_t   mc_ui_get_vertices(void *dst, uint32_t max_bytes);
+
 #endif /* MC_UI_H */
