@@ -11,6 +11,8 @@
  * Vertex packing (matches terrain.vert.glsl):
  *   position_packed:  bits [4:0]=x, [13:5]=y, [18:14]=z  (5+9+5 = 19 bits)
  *   lighting_packed:  bits [3:0]=light level (0-15)
+ *                     bits [11:4]=texture index (0-255)
+ *                     bits [13:12]=face UV corner index (0-3)
  */
 
 static inline uint32_t block_index(int x, int y, int z)
@@ -23,10 +25,43 @@ static inline uint32_t pack_position(uint32_t x, uint32_t y, uint32_t z)
     return (x & 0x1Fu) | ((y & 0x1FFu) << 5) | ((z & 0x1Fu) << 14);
 }
 
-static inline uint32_t pack_lighting(uint8_t light)
+static inline uint32_t pack_lighting(uint8_t light, uint8_t tex_index, uint8_t corner)
 {
-    return (uint32_t)(light & 0xFu);
+    return (uint32_t)(light & 0xFu)
+         | ((uint32_t)(tex_index) << 4)
+         | ((uint32_t)(corner & 0x3u) << 12);
 }
+
+/*
+ * Map block ID + face direction to a texture atlas tile index.
+ * Face indices: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z
+ */
+static inline uint8_t block_texture_index(block_id_t block, int face)
+{
+    switch (block) {
+    case 1:  return 1;  /* STONE */
+    case 2:  /* GRASS: top=2, bottom=4, sides=3 */
+        if (face == 2) return 2;
+        if (face == 3) return 4;
+        return 3;
+    case 3:  return 4;  /* DIRT */
+    case 4:  return 5;  /* COBBLESTONE */
+    case 5:  return 6;  /* SAND */
+    case 6:  return 7;  /* WATER */
+    case 7:  /* OAK_LOG: top/bottom=9, sides=8 */
+        if (face == 2 || face == 3) return 9;
+        return 8;
+    case 8:  return 10; /* OAK_LEAVES */
+    case 9:  return 11; /* BEDROCK */
+    case 10: return 12; /* GRAVEL */
+    case 11: return 13; /* IRON_ORE */
+    case 12: return 14; /* COAL_ORE */
+    case 13: return 15; /* SNOW */
+    default: return 1;  /* fallback to stone */
+    }
+}
+
+/* UV corners per quad vertex: 0=(0,0), 1=(0,1), 2=(1,1), 3=(1,0) */
 
 /* 4-bit values, packed 2 per byte */
 static inline uint8_t get_sky_light(const chunk_section_t *s, int x, int y, int z)
@@ -118,6 +153,7 @@ chunk_mesh_t *build_chunk_mesh_data(const chunk_section_t *section,
                     /* Emit 4 vertices for this quad */
                     uint32_t base_vert = vert_count;
                     uint32_t world_y = (uint32_t)section_y * CHUNK_SIZE_Y + (uint32_t)y;
+                    uint8_t tex_idx = block_texture_index(block, face);
 
                     for (int v = 0; v < 4; v++) {
                         uint32_t vx = (uint32_t)x + (uint32_t)FACE_VERTS[face][v][0];
@@ -125,7 +161,8 @@ chunk_mesh_t *build_chunk_mesh_data(const chunk_section_t *section,
                         uint32_t vz = (uint32_t)z + (uint32_t)FACE_VERTS[face][v][2];
 
                         vertices[vert_count].position_packed = pack_position(vx, vy, vz);
-                        vertices[vert_count].lighting_packed = pack_lighting(light);
+                        vertices[vert_count].lighting_packed =
+                            pack_lighting(light, tex_idx, (uint8_t)v);
                         vert_count++;
                     }
 

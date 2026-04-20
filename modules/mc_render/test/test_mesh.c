@@ -52,6 +52,14 @@ static int test_single_block_mesh(void)
     uint32_t light_val = light_packed & 0xFu;
     ASSERT(light_val == 15, "sky light should be 15 for first block");
 
+    /* Verify texture index is packed in bits [11:4] */
+    uint32_t tex_idx = (light_packed >> 4) & 0xFFu;
+    ASSERT(tex_idx == 1, "stone block should have texture index 1");
+
+    /* Verify UV corner is packed in bits [13:12] */
+    uint32_t uv_corner = (light_packed >> 12) & 0x3u;
+    ASSERT(uv_corner == 0, "first vertex UV corner should be 0");
+
     free(mesh->vertices);
     free(mesh->indices);
     free(mesh);

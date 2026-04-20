@@ -52,6 +52,9 @@ mc_error_t mc_render_init(void *window_handle, uint32_t width, uint32_t height)
 
         err = vk_create_pipeline();
         if (err != MC_OK) return err;
+
+        err = vk_create_texture_atlas();
+        if (err != MC_OK) return err;
     }
 
     return MC_OK;
@@ -62,6 +65,8 @@ void mc_render_shutdown(void)
     if (g_render.device) {
         vkDeviceWaitIdle(g_render.device);
     }
+
+    vk_destroy_texture_atlas();
 
     for (uint32_t i = 0; i < MAX_MESH_SLOTS; i++) {
         if (g_render.meshes[i].in_use) {
@@ -297,6 +302,13 @@ void mc_render_draw_terrain(const uint64_t *mesh_handles, uint32_t count)
 
     vkCmdBindPipeline(g_render.active_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       g_render.graphics_pipeline);
+
+    /* Bind texture atlas descriptor set */
+    if (g_render.atlas_desc_set) {
+        vkCmdBindDescriptorSets(g_render.active_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                g_render.pipeline_layout, 0, 1,
+                                &g_render.atlas_desc_set, 0, NULL);
+    }
 
     /* Compute MVP = projection * view (no model transform yet) */
     mat4_t mvp;
