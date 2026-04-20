@@ -75,6 +75,11 @@ typedef struct {
     /* Mesh slots */
     mesh_slot_t              meshes[MAX_MESH_SLOTS];
 
+    /* Entity rendering */
+    VkBuffer                 entity_vertex_buffer;
+    VkDeviceMemory           entity_vertex_memory;
+    VkDeviceSize             entity_vertex_capacity; /* bytes */
+
     /* Memory properties */
     VkPhysicalDeviceMemoryProperties mem_props;
 
