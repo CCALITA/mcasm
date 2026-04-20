@@ -4,6 +4,8 @@ include ../../toolchain/platform.mk
 include ../../toolchain/nasm.mk
 include ../../toolchain/cc.mk
 
+CFLAGS += -I internal/
+
 ASM_SRC := $(wildcard src/*.asm)
 C_SRC   := $(wildcard src/*.c)
 ASM_OBJ := $(ASM_SRC:src/%.asm=obj/%.o)
