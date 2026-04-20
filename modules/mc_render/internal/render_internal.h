@@ -30,7 +30,9 @@ typedef struct {
     VkPhysicalDevice         physical_device;
     VkDevice                 device;
     VkQueue                  graphics_queue;
+    VkQueue                  present_queue;
     uint32_t                 graphics_family;
+    uint32_t                 present_family;
 
     /* Swapchain */
     VkSurfaceKHR             surface;
@@ -87,6 +89,7 @@ extern render_state_t g_render;
 
 /* Internal helpers */
 mc_error_t vk_init_instance(void);
+mc_error_t vk_create_surface(void *window_handle);
 mc_error_t vk_select_physical_device(void);
 mc_error_t vk_create_device(void);
 

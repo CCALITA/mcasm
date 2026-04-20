@@ -2,6 +2,9 @@
 #include <string.h>
 #include <stdio.h>
 
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
 render_state_t g_render;
 
 mc_error_t vk_init_instance(void)
@@ -15,16 +18,21 @@ mc_error_t vk_init_instance(void)
     app_info.engineVersion      = VK_MAKE_VERSION(0, 1, 0);
     app_info.apiVersion         = VK_API_VERSION_1_0;
 
-    const char *extensions[] = {
-        VK_KHR_SURFACE_EXTENSION_NAME,
+    /* Get required extensions from GLFW (includes surface + platform surface) */
+    uint32_t glfw_ext_count = 0;
+    const char **glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
+
+    const char *extensions[32];
+    uint32_t ext_count = 0;
+
+    for (uint32_t i = 0; i < glfw_ext_count && ext_count < 32; i++)
+        extensions[ext_count++] = glfw_exts[i];
+
 #ifdef __APPLE__
-        VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-        "VK_EXT_metal_surface",
-#else
-        "VK_KHR_xcb_surface",
+    /* MoltenVK needs portability enumeration beyond what GLFW requests */
+    if (ext_count < 32)
+        extensions[ext_count++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
 #endif
-    };
-    uint32_t ext_count = sizeof(extensions) / sizeof(extensions[0]);
 
     VkInstanceCreateInfo ci;
     memset(&ci, 0, sizeof(ci));
@@ -44,6 +52,18 @@ mc_error_t vk_init_instance(void)
     return MC_OK;
 }
 
+mc_error_t vk_create_surface(void *window_handle)
+{
+    VkResult res = glfwCreateWindowSurface(g_render.instance,
+                                           (GLFWwindow *)window_handle,
+                                           NULL, &g_render.surface);
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "glfwCreateWindowSurface failed: %d\n", res);
+        return MC_ERR_VULKAN;
+    }
+    return MC_OK;
+}
+
 mc_error_t vk_select_physical_device(void)
 {
     uint32_t count = 0;
@@ -57,7 +77,7 @@ mc_error_t vk_select_physical_device(void)
     if (count > 16) count = 16;
     vkEnumeratePhysicalDevices(g_render.instance, &count, devices);
 
-    /* Pick first device with a graphics queue */
+    /* Pick first device with a graphics queue that also supports present */
     for (uint32_t i = 0; i < count; i++) {
         uint32_t qf_count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &qf_count, NULL);
@@ -65,13 +85,35 @@ mc_error_t vk_select_physical_device(void)
         if (qf_count > 64) qf_count = 64;
         vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &qf_count, qf_props);
 
+        uint32_t gfx_family   = UINT32_MAX;
+        uint32_t pres_family  = UINT32_MAX;
+
         for (uint32_t q = 0; q < qf_count; q++) {
-            if (qf_props[q].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                g_render.physical_device = devices[i];
-                g_render.graphics_family = q;
-                vkGetPhysicalDeviceMemoryProperties(devices[i], &g_render.mem_props);
-                return MC_OK;
+            if (qf_props[q].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+                gfx_family = q;
+
+            VkBool32 present_support = VK_FALSE;
+            if (g_render.surface) {
+                vkGetPhysicalDeviceSurfaceSupportKHR(devices[i], q,
+                                                     g_render.surface,
+                                                     &present_support);
             }
+            if (present_support)
+                pres_family = q;
+
+            /* Prefer a family that does both */
+            if (gfx_family != UINT32_MAX && pres_family != UINT32_MAX)
+                break;
+        }
+
+        /* Accept device if we found a graphics family.
+         * present_family may equal UINT32_MAX in headless mode (no surface). */
+        if (gfx_family != UINT32_MAX) {
+            g_render.physical_device = devices[i];
+            g_render.graphics_family = gfx_family;
+            g_render.present_family  = (pres_family != UINT32_MAX) ? pres_family : gfx_family;
+            vkGetPhysicalDeviceMemoryProperties(devices[i], &g_render.mem_props);
+            return MC_OK;
         }
     }
 
@@ -82,12 +124,24 @@ mc_error_t vk_select_physical_device(void)
 mc_error_t vk_create_device(void)
 {
     float priority = 1.0f;
-    VkDeviceQueueCreateInfo queue_ci;
-    memset(&queue_ci, 0, sizeof(queue_ci));
-    queue_ci.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_ci.queueFamilyIndex = g_render.graphics_family;
-    queue_ci.queueCount       = 1;
-    queue_ci.pQueuePriorities = &priority;
+
+    VkDeviceQueueCreateInfo queue_cis[2];
+    uint32_t queue_ci_count = 1;
+
+    memset(&queue_cis[0], 0, sizeof(queue_cis[0]));
+    queue_cis[0].sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_cis[0].queueFamilyIndex = g_render.graphics_family;
+    queue_cis[0].queueCount       = 1;
+    queue_cis[0].pQueuePriorities = &priority;
+
+    if (g_render.present_family != g_render.graphics_family) {
+        memset(&queue_cis[1], 0, sizeof(queue_cis[1]));
+        queue_cis[1].sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_cis[1].queueFamilyIndex = g_render.present_family;
+        queue_cis[1].queueCount       = 1;
+        queue_cis[1].pQueuePriorities = &priority;
+        queue_ci_count = 2;
+    }
 
     const char *dev_exts[] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -100,8 +154,8 @@ mc_error_t vk_create_device(void)
     VkDeviceCreateInfo ci;
     memset(&ci, 0, sizeof(ci));
     ci.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    ci.queueCreateInfoCount    = 1;
-    ci.pQueueCreateInfos       = &queue_ci;
+    ci.queueCreateInfoCount    = queue_ci_count;
+    ci.pQueueCreateInfos       = queue_cis;
     ci.enabledExtensionCount   = dev_ext_count;
     ci.ppEnabledExtensionNames = dev_exts;
 
@@ -112,6 +166,7 @@ mc_error_t vk_create_device(void)
     }
 
     vkGetDeviceQueue(g_render.device, g_render.graphics_family, 0, &g_render.graphics_queue);
+    vkGetDeviceQueue(g_render.device, g_render.present_family,  0, &g_render.present_queue);
     return MC_OK;
 }
 

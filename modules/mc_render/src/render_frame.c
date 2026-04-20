@@ -20,21 +20,22 @@ mc_error_t mc_render_init(void *window_handle, uint32_t width, uint32_t height)
     err = vk_init_instance();
     if (err != MC_OK) return err;
 
+    /*
+     * Create surface before selecting a physical device so that
+     * vk_select_physical_device can query present support.
+     */
+    if (window_handle) {
+        err = vk_create_surface(window_handle);
+        if (err != MC_OK) return err;
+    }
+
     err = vk_select_physical_device();
     if (err != MC_OK) return err;
 
     err = vk_create_device();
     if (err != MC_OK) return err;
 
-    /*
-     * Surface creation requires a platform window handle (GLFW etc).
-     * If no window is provided, skip swapchain setup -- useful for headless
-     * testing or mesh-only workflows.
-     */
     if (window_handle) {
-        /* The caller provides a VkSurfaceKHR cast to void* */
-        g_render.surface = (VkSurfaceKHR)(uintptr_t)window_handle;
-
         err = vk_create_swapchain();
         if (err != MC_OK) return err;
 
@@ -92,10 +93,11 @@ void mc_render_shutdown(void)
 
     vk_destroy_swapchain();
 
+    if (g_render.surface && g_render.instance)
+        vkDestroySurfaceKHR(g_render.instance, g_render.surface, NULL);
+
     if (g_render.device)
         vkDestroyDevice(g_render.device, NULL);
-
-    /* Note: surface is owned by the platform layer, not destroyed here */
 
     if (g_render.instance)
         vkDestroyInstance(g_render.instance, NULL);
@@ -378,7 +380,7 @@ void mc_render_end_frame(void)
     present.pSwapchains        = &g_render.swapchain;
     present.pImageIndices      = &g_render.current_image_index;
 
-    vkQueuePresentKHR(g_render.graphics_queue, &present);
+    vkQueuePresentKHR(g_render.present_queue, &present);
 
     g_render.current_frame = (frame + 1) % MAX_FRAMES_IN_FLIGHT;
     g_render.active_cmd    = VK_NULL_HANDLE;
