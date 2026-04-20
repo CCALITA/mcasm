@@ -4,11 +4,8 @@ include ../../toolchain/platform.mk
 include ../../toolchain/nasm.mk
 include ../../toolchain/cc.mk
 
-# On non-x86_64 hosts (e.g. Apple Silicon) NASM produces x86_64 objects
-# that cannot link with native ARM64 C objects.  Detect the mismatch and
-# skip .asm files, relying on C fallbacks in src/power_decay_fallback.c.
-HOST_ARCH := $(shell uname -m)
-ifeq ($(HOST_ARCH),x86_64)
+# ASM sources are x86-64 only; on other architectures use C fallbacks
+ifeq ($(NASM_ENABLED),1)
   ASM_SRC := $(wildcard src/*.asm)
 else
   ASM_SRC :=

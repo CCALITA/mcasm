@@ -4,15 +4,13 @@ include ../../toolchain/platform.mk
 include ../../toolchain/nasm.mk
 include ../../toolchain/cc.mk
 
-HOST_ARCH := $(shell uname -m)
-
 # ASM sources are x86-64 only; on other architectures use C fallback
-ifeq ($(HOST_ARCH),x86_64)
+ifeq ($(NASM_ENABLED),1)
   ASM_SRC := $(wildcard src/*.asm)
   C_SRC   := $(filter-out src/particle_update_fallback.c,$(wildcard src/*.c))
 else
   ASM_SRC :=
-  C_SRC   := $(filter-out src/particle_update_fallback.c,$(wildcard src/*.c)) src/particle_update_fallback.c
+  C_SRC   := $(wildcard src/*.c)
 endif
 
 ASM_OBJ := $(ASM_SRC:src/%.asm=obj/%.o)

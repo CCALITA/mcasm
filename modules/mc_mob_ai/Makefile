@@ -4,9 +4,8 @@ include ../../toolchain/platform.mk
 include ../../toolchain/nasm.mk
 include ../../toolchain/cc.mk
 
-# On x86_64, build pathfind.asm; on ARM, use the C fallback
-ARCH := $(shell uname -m)
-ifeq ($(ARCH),x86_64)
+# ASM sources are x86-64 only; on ARM, use the C fallback
+ifeq ($(NASM_ENABLED),1)
   ASM_SRC := $(wildcard src/*.asm)
   C_SRC   := $(filter-out src/pathfind_c.c,$(wildcard src/*.c))
 else
