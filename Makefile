@@ -1,4 +1,5 @@
 include toolchain/platform.mk
+include toolchain/link.mk
 
 MODULES := mc_memory mc_math mc_platform mc_block mc_world mc_worldgen \
            mc_entity mc_mob_ai mc_physics mc_render mc_audio mc_ui \
