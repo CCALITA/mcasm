@@ -15,9 +15,94 @@
 
 #include <math.h>
 
-/* ---- Internal tick counter ---- */
+/* ---- Constants ---- */
 
-static tick_t g_current_tick = 0;
+#define PLAYER_MOVE_SPEED  4.317f   /* Minecraft walk speed (m/s) */
+#define PLAYER_JUMP_SPEED  8.0f
+#define GRAVITY            20.0f
+#define HALF_PI            1.5707963f
+#define PLAYER_EYE_HEIGHT  1.62f
+#define PLAYER_HEIGHT      1.80f
+
+/* Player AABB relative to feet position */
+static const aabb_t PLAYER_AABB_TEMPLATE = {
+    .min = { -0.3f, 0.0f, -0.3f, 0.0f },
+    .max = {  0.3f, PLAYER_HEIGHT, 0.3f, 0.0f }
+};
+
+/* ---- Module state ---- */
+
+static tick_t      g_current_tick  = 0;
+static entity_id_t g_player_entity = ENTITY_INVALID;
+
+/* ---- Helpers ---- */
+
+static float clampf(float v, float lo, float hi)
+{
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+static aabb_t player_aabb_at(vec3_t pos)
+{
+    aabb_t box;
+    box.min = mc_math_vec3_add(pos, PLAYER_AABB_TEMPLATE.min);
+    box.max = mc_math_vec3_add(pos, PLAYER_AABB_TEMPLATE.max);
+    return box;
+}
+
+/* ---- Player movement (called once per tick while playing) ---- */
+
+static void update_player(float dt)
+{
+    if (g_player_entity == ENTITY_INVALID) {
+        return;
+    }
+
+    transform_component_t *tf = mc_entity_get_transform(g_player_entity);
+    physics_component_t   *ph = mc_entity_get_physics(g_player_entity);
+    if (!tf || !ph) {
+        return;
+    }
+
+    float dyaw  = 0.0f;
+    float dpitch = 0.0f;
+    mc_input_get_look_delta(&dyaw, &dpitch);
+    tf->yaw  += dyaw;
+    tf->pitch = clampf(tf->pitch + dpitch, -HALF_PI, HALF_PI);
+
+    float fwd    = mc_input_get_move_forward();
+    float strafe = mc_input_get_move_strafe();
+
+    float yaw = tf->yaw;
+    vec3_t forward = { -sinf(yaw), 0.0f, -cosf(yaw), 0.0f };
+    vec3_t up      = {  0.0f,      1.0f,  0.0f,       0.0f };
+    vec3_t right   = mc_math_vec3_cross(forward, up);
+
+    vec3_t move_dir = mc_math_vec3_add(
+        mc_math_vec3_scale(forward, fwd),
+        mc_math_vec3_scale(right, strafe)
+    );
+    vec3_t vel = mc_math_vec3_scale(move_dir, PLAYER_MOVE_SPEED);
+
+    /* Carry vertical velocity forward; jump resets it, gravity accumulates */
+    vel.y = tf->velocity.y;
+
+    if (mc_input_action_pressed(ACTION_JUMP) && ph->on_ground) {
+        vel.y = PLAYER_JUMP_SPEED;
+    }
+
+    if (!ph->on_ground) {
+        vel.y -= GRAVITY * dt;
+    }
+
+    aabb_t box      = player_aabb_at(tf->position);
+    vec3_t resolved = mc_physics_move_and_slide(box, vel, dt);
+
+    tf->position = mc_math_vec3_add(tf->position, resolved);
+    tf->velocity = vel;
+}
 
 /* ---- Fixed-timestep helpers ---- */
 
@@ -40,6 +125,8 @@ static void tick_update(void)
         return;
     }
 
+    update_player(dt);
+
     mc_physics_tick(dt);
     mc_world_tick(g_current_tick);
     mc_mob_ai_tick(g_current_tick);
@@ -55,21 +142,23 @@ static void render_frame(void)
     uint32_t fb_w = 0, fb_h = 0;
     mc_platform_get_framebuffer_size(&fb_w, &fb_h);
 
-    /* Build view and projection matrices from entity 1 (player) */
+    /* Build view and projection matrices from the player entity */
     mat4_t view = mc_math_mat4_identity();
     float aspect = (fb_h > 0) ? (float)fb_w / (float)fb_h : 1.0f;
     mat4_t projection = mc_math_mat4_perspective(1.22173f, aspect, 0.1f, 1000.0f);
 
-    transform_component_t *player_tf = mc_entity_get_transform(1);
+    transform_component_t *player_tf = mc_entity_get_transform(g_player_entity);
     if (player_tf) {
         vec3_t eye = player_tf->position;
+        eye.y += PLAYER_EYE_HEIGHT;
+
         float yaw   = player_tf->yaw;
         float pitch = player_tf->pitch;
 
-        /* Compute forward vector from yaw/pitch */
+        /* Look direction from yaw/pitch */
         float cos_p = cosf(pitch);
         vec3_t center = {
-            eye.x + sinf(yaw) * cos_p,
+            eye.x - sinf(yaw) * cos_p,
             eye.y + sinf(pitch),
             eye.z - cosf(yaw) * cos_p,
             0.0f
@@ -102,13 +191,13 @@ mc_error_t mc_game_loop_run(const game_config_t *config)
     }
 
     /* Create player entity with transform + physics + player components */
-    entity_id_t player = mc_entity_create(
+    g_player_entity = mc_entity_create(
         COMPONENT_TRANSFORM | COMPONENT_PHYSICS | COMPONENT_PLAYER
     );
-    if (player != ENTITY_INVALID) {
+    if (g_player_entity != ENTITY_INVALID) {
         int32_t spawn_y = mc_world_get_height(0, 0) + 2;
         vec3_t spawn = {0.0f, (float)spawn_y, 0.0f, 0.0f};
-        mc_entity_set_position(player, spawn);
+        mc_entity_set_position(g_player_entity, spawn);
     }
 
     mc_state_set(GAME_STATE_PLAYING);
@@ -140,8 +229,9 @@ mc_error_t mc_game_loop_run(const game_config_t *config)
     }
 
     /* Clean up player */
-    if (player != ENTITY_INVALID) {
-        mc_entity_destroy(player);
+    if (g_player_entity != ENTITY_INVALID) {
+        mc_entity_destroy(g_player_entity);
+        g_player_entity = ENTITY_INVALID;
     }
 
     return MC_OK;
