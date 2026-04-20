@@ -41,7 +41,7 @@ static vec3_t vec3_towards(vec3_t from, vec3_t to, float speed)
     return result;
 }
 
-static mob_entry_t *find_mob(entity_id_t entity)
+mob_entry_t *mob_find(entity_id_t entity)
 {
     for (uint32_t i = 0; i < g_mob_count; i++) {
         if (g_mobs[i].active && g_mobs[i].entity_id == entity) {
@@ -51,12 +51,23 @@ static mob_entry_t *find_mob(entity_id_t entity)
     return NULL;
 }
 
-/* Simulated player position — in a real system this would come from
-   the entity module.  For now, mobs target (0, 4, 0). */
+static mob_entry_t *find_mob(entity_id_t entity)
+{
+    return mob_find(entity);
+}
+
+/* ── Player position (set by game loop via mc_mob_ai_set_player_pos) ── */
+
+static vec3_t s_player_pos = {0.0f, 4.0f, 0.0f, 0.0f};
+
+void mc_mob_ai_set_player_pos(vec3_t pos)
+{
+    s_player_pos = pos;
+}
+
 static vec3_t get_player_pos(void)
 {
-    vec3_t p = {0.0f, 4.0f, 0.0f, 0.0f};
-    return p;
+    return s_player_pos;
 }
 
 /* ── Mob states ───────────────────────────────────────────────────── */
