@@ -81,11 +81,14 @@ static int test_surface_layers(void)
             ASSERT(surf_block == BLOCK_GRASS || surf_block == BLOCK_AIR,
                    "surface should be grass or air (cave)");
 
-            /* Below bedrock layer, blocks should be stone (unless caved). */
+            /* Below bedrock layer, blocks should be stone or ore (unless caved). */
             if (surface > 10) {
                 block_id_t deep = get_block(&chunk, lx, 8, lz);
-                ASSERT(deep == BLOCK_STONE || deep == BLOCK_AIR,
-                       "deep underground should be stone or air (cave)");
+                ASSERT(deep == BLOCK_STONE || deep == BLOCK_AIR ||
+                       deep == BLOCK_COAL_ORE || deep == BLOCK_IRON_ORE ||
+                       deep == BLOCK_GOLD_ORE || deep == BLOCK_DIAMOND_ORE ||
+                       deep == BLOCK_REDSTONE_ORE,
+                       "deep underground should be stone, ore, or air (cave)");
             }
         }
     }
@@ -182,6 +185,67 @@ static int test_chunk_state(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* Test: ore generation places coal and iron ore blocks               */
+/* ------------------------------------------------------------------ */
+static int test_ore_generation(void)
+{
+    chunk_t chunk;
+    chunk_pos_t pos = {3, 5};
+    mc_error_t err = mc_worldgen_generate_chunk(pos, &chunk);
+    ASSERT(err == MC_OK, "generate_chunk should return MC_OK");
+
+    int coal_count = 0;
+    int iron_count = 0;
+    int max_y = SECTION_COUNT * CHUNK_SIZE_Y;
+
+    for (int lx = 0; lx < CHUNK_SIZE_X; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE_Z; lz++) {
+            for (int y = 0; y < max_y; y++) {
+                block_id_t b = get_block(&chunk, lx, y, lz);
+                if (b == BLOCK_COAL_ORE)     coal_count++;
+                if (b == BLOCK_IRON_ORE)     iron_count++;
+            }
+        }
+    }
+
+    ASSERT(coal_count > 0, "chunk should contain at least some coal ore");
+    ASSERT(iron_count > 0, "chunk should contain at least some iron ore");
+
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Test: ores only replace stone, not air or other blocks             */
+/* ------------------------------------------------------------------ */
+static int test_ore_replaces_only_stone(void)
+{
+    /* Generate a chunk and verify no ore appears above the surface
+       (since ores only replace stone, not air). */
+    chunk_t chunk;
+    chunk_pos_t pos = {0, 0};
+    mc_worldgen_generate_chunk(pos, &chunk);
+
+    int max_y = SECTION_COUNT * CHUNK_SIZE_Y;
+    for (int lx = 0; lx < CHUNK_SIZE_X; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE_Z; lz++) {
+            int surface = chunk.heightmap[lz * CHUNK_SIZE_X + lx];
+            /* Above surface should still be air (ores don't create blocks in air). */
+            for (int y = surface + 1; y < max_y; y++) {
+                block_id_t b = get_block(&chunk, lx, y, lz);
+                /* Allow air, or tree blocks placed above surface */
+                if (b == BLOCK_COAL_ORE || b == BLOCK_IRON_ORE ||
+                    b == BLOCK_GOLD_ORE || b == BLOCK_DIAMOND_ORE ||
+                    b == BLOCK_REDSTONE_ORE) {
+                    ASSERT(0, "ore should not appear above the surface in air");
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
 /* main                                                               */
 /* ------------------------------------------------------------------ */
 int main(void)
@@ -196,6 +260,8 @@ int main(void)
     fail |= test_temperature_humidity();
     fail |= test_null_arg();
     fail |= test_chunk_state();
+    fail |= test_ore_generation();
+    fail |= test_ore_replaces_only_stone();
 
     mc_worldgen_shutdown();
 

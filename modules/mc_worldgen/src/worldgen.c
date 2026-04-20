@@ -13,6 +13,7 @@ mc_error_t mc_worldgen_init(uint32_t seed)
     terrain_init(seed);
     biome_init(seed);
     caves_init(seed);
+    ores_init(seed);
     trees_init(seed);
     return MC_OK;
 }
@@ -34,7 +35,10 @@ mc_error_t mc_worldgen_generate_chunk(chunk_pos_t pos, chunk_t *out_chunk)
     /* 2. Carve caves */
     caves_carve(pos, out_chunk);
 
-    /* 3. Place trees */
+    /* 3. Place ore veins */
+    ores_place(pos, out_chunk);
+
+    /* 4. Place trees */
     trees_place(pos, out_chunk);
 
     out_chunk->state = CHUNK_STATE_READY;

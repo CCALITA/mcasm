@@ -95,6 +95,11 @@ void       terrain_generate_chunk(chunk_pos_t pos, chunk_t *out);
 void caves_init(uint32_t seed);
 void caves_carve(chunk_pos_t pos, chunk_t *chunk);
 
+/* ---- Ores ---- */
+
+void ores_init(uint32_t seed);
+void ores_place(chunk_pos_t pos, chunk_t *chunk);
+
 /* ---- Trees ---- */
 
 void trees_init(uint32_t seed);
