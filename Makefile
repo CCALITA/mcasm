@@ -1,4 +1,5 @@
 include toolchain/platform.mk
+include toolchain/link.mk
 
 LDFLAGS := $(LDFLAGS_PLATFORM)
 
