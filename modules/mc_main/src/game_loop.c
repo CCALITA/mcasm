@@ -41,6 +41,15 @@ static void tick_update(void)
     }
 
     mc_physics_tick(dt);
+
+    /* Block interaction (dig / place) for player entity 1 */
+    {
+        transform_component_t *ptf = mc_entity_get_transform(1);
+        if (ptf) {
+            interaction_update(1, ptf->yaw, ptf->pitch);
+        }
+    }
+
     mc_world_tick(g_current_tick);
     mc_mob_ai_tick(g_current_tick);
     mc_redstone_tick(g_current_tick);

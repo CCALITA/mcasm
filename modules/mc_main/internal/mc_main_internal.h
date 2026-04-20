@@ -38,6 +38,11 @@ game_state_t mc_state_transition(game_state_t current, uint8_t pause_pressed);
 
 mc_error_t mc_game_loop_run(const game_config_t *config);
 
+/* ---- Block interaction (interaction.c) ---- */
+
+void interaction_init(void);
+void interaction_update(entity_id_t player, float yaw, float pitch);
+
 /* ---- Error (error.c — public API already in mc_error.h) ---- */
 
 #endif /* MC_MAIN_INTERNAL_H */
