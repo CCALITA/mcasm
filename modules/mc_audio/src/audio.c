@@ -301,6 +301,37 @@ void mc_audio_set_master_volume(float volume)
     alListenerf(AL_GAIN, g_audio.master_volume);
 }
 
+uint32_t mc_audio_load_sound_pcm(const void *data, uint32_t data_size,
+                                 uint16_t channels, uint16_t bits_per_sample,
+                                 uint32_t sample_rate)
+{
+    if (!g_audio.initialized || !data || data_size == 0) {
+        return 0;
+    }
+    if (g_audio.buffer_count >= MAX_SOUNDS) {
+        return 0;
+    }
+
+    ALenum format = wav_to_al_format(channels, bits_per_sample);
+    if (format == 0) {
+        return 0;
+    }
+
+    ALuint buf;
+    alGenBuffers(1, &buf);
+    alBufferData(buf, format, data, (ALsizei)data_size, (ALsizei)sample_rate);
+
+    if (alGetError() != AL_NO_ERROR) {
+        alDeleteBuffers(1, &buf);
+        return 0;
+    }
+
+    uint32_t handle = g_audio.buffer_count;
+    g_audio.buffers[handle] = buf;
+    g_audio.buffer_count++;
+    return handle;
+}
+
 void mc_audio_tick(void)
 {
     if (!g_audio.initialized) {
@@ -331,6 +362,9 @@ void mc_audio_tick(void)
 mc_error_t mc_audio_init(void)                   { return MC_OK; }
 void       mc_audio_shutdown(void)               {}
 uint32_t   mc_audio_load_sound(const char *p)    { (void)p; return 0; }
+uint32_t   mc_audio_load_sound_pcm(const void *d, uint32_t sz,
+                                   uint16_t ch, uint16_t bps, uint32_t sr)
+           { (void)d; (void)sz; (void)ch; (void)bps; (void)sr; return 0; }
 void       mc_audio_play(uint32_t id, vec3_t pos, float vol, float pitch)
            { (void)id; (void)pos; (void)vol; (void)pitch; }
 void       mc_audio_play_music(const char *p, float v) { (void)p; (void)v; }

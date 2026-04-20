@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "../internal/audio_internal.h"
+#include "../internal/audio_events.h"
 
 /* ------- test helpers ------- */
 
@@ -281,6 +282,81 @@ TEST(test_operations_without_init)
     ASSERT(mc_audio_load_sound("nonexistent.wav") == 0);
 }
 
+/* ------- Sound events tests ------- */
+
+TEST(test_events_init)
+{
+    mc_error_t err = mc_audio_init();
+    ASSERT(err == MC_OK);
+
+    /* Should not crash; registers all event sounds */
+    mc_audio_events_init();
+
+    mc_audio_shutdown();
+}
+
+TEST(test_events_double_init)
+{
+    mc_error_t err = mc_audio_init();
+    ASSERT(err == MC_OK);
+
+    mc_audio_events_init();
+    /* Second init should be a no-op, not crash */
+    mc_audio_events_init();
+
+    mc_audio_shutdown();
+}
+
+TEST(test_play_event_valid)
+{
+    mc_error_t err = mc_audio_init();
+    ASSERT(err == MC_OK);
+    mc_audio_events_init();
+
+    vec3_t pos = { 1.0f, 2.0f, 3.0f, 0.0f };
+
+    /* Playing each valid event should not crash */
+    mc_audio_play_event(SOUND_FOOTSTEP, pos);
+    mc_audio_play_event(SOUND_BLOCK_BREAK, pos);
+    mc_audio_play_event(SOUND_BLOCK_PLACE, pos);
+    mc_audio_play_event(SOUND_HURT, pos);
+    mc_audio_play_event(SOUND_AMBIENT_CAVE, pos);
+    mc_audio_play_event(SOUND_WATER_AMBIENT, pos);
+    mc_audio_play_event(SOUND_MUSIC, pos);
+
+    mc_audio_shutdown();
+}
+
+TEST(test_play_event_invalid_id)
+{
+    mc_error_t err = mc_audio_init();
+    ASSERT(err == MC_OK);
+    mc_audio_events_init();
+
+    vec3_t pos = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    /* Out-of-range event IDs should be silently ignored */
+    mc_audio_play_event(SOUND_EVENT_COUNT, pos);
+    mc_audio_play_event(SOUND_EVENT_COUNT + 1, pos);
+    mc_audio_play_event(255, pos);
+
+    mc_audio_shutdown();
+}
+
+TEST(test_play_event_without_events_init)
+{
+    mc_error_t err = mc_audio_init();
+    ASSERT(err == MC_OK);
+
+    vec3_t pos = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    /* Playing events before events_init should be silently ignored */
+    mc_audio_play_event(SOUND_FOOTSTEP, pos);
+    mc_audio_play_event(SOUND_HURT, pos);
+
+    mc_audio_shutdown();
+}
+
 /* ------- main ------- */
 
 int main(void)
@@ -306,6 +382,13 @@ int main(void)
     RUN(test_stop_music_no_crash);
     RUN(test_play_invalid_sound);
     RUN(test_operations_without_init);
+
+    /* Sound events tests */
+    RUN(test_play_event_without_events_init);
+    RUN(test_events_init);
+    RUN(test_events_double_init);
+    RUN(test_play_event_valid);
+    RUN(test_play_event_invalid_id);
 
     printf("\n  %d/%d tests passed\n", g_tests_passed, g_tests_run);
     return 0;

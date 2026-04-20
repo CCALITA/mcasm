@@ -29,4 +29,13 @@ mc_error_t wav_parse(const void *buf, size_t buf_size, wav_data_t *wav_out);
  */
 mc_error_t wav_load_file(const char *path, wav_data_t *wav_out);
 
+/*
+ * Load raw PCM data as a sound buffer (no file I/O).
+ * Returns a sound handle (>0) on success, 0 on failure.
+ * The caller retains ownership of `data` (it is copied internally).
+ */
+uint32_t mc_audio_load_sound_pcm(const void *data, uint32_t data_size,
+                                 uint16_t channels, uint16_t bits_per_sample,
+                                 uint32_t sample_rate);
+
 #endif /* MC_AUDIO_INTERNAL_H */
