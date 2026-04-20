@@ -103,6 +103,128 @@ mc_error_t vk_create_swapchain(void)
     return MC_OK;
 }
 
+/* ---- Depth buffer ---- */
+
+static VkFormat find_supported_depth_format(void)
+{
+    VkFormat candidates[] = {
+        VK_FORMAT_D32_SFLOAT,
+        VK_FORMAT_D32_SFLOAT_S8_UINT,
+        VK_FORMAT_D24_UNORM_S8_UINT
+    };
+    uint32_t count = sizeof(candidates) / sizeof(candidates[0]);
+
+    for (uint32_t i = 0; i < count; i++) {
+        VkFormatProperties props;
+        vkGetPhysicalDeviceFormatProperties(g_render.physical_device,
+                                            candidates[i], &props);
+        if (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+            return candidates[i];
+        }
+    }
+    return VK_FORMAT_D32_SFLOAT; /* fallback */
+}
+
+mc_error_t vk_create_depth_resources(void)
+{
+    g_render.depth_format = find_supported_depth_format();
+
+    /* Create depth image */
+    VkImageCreateInfo img_ci;
+    memset(&img_ci, 0, sizeof(img_ci));
+    img_ci.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    img_ci.imageType     = VK_IMAGE_TYPE_2D;
+    img_ci.format        = g_render.depth_format;
+    img_ci.extent.width  = g_render.swapchain_extent.width;
+    img_ci.extent.height = g_render.swapchain_extent.height;
+    img_ci.extent.depth  = 1;
+    img_ci.mipLevels     = 1;
+    img_ci.arrayLayers   = 1;
+    img_ci.samples       = VK_SAMPLE_COUNT_1_BIT;
+    img_ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    img_ci.usage         = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    img_ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    img_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VkResult res = vkCreateImage(g_render.device, &img_ci, NULL, &g_render.depth_image);
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "vkCreateImage (depth) failed: %d\n", res);
+        return MC_ERR_VULKAN;
+    }
+
+    /* Allocate memory for depth image */
+    VkMemoryRequirements mem_req;
+    vkGetImageMemoryRequirements(g_render.device, g_render.depth_image, &mem_req);
+
+    uint32_t mem_type = vk_find_memory_type(mem_req.memoryTypeBits,
+                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (mem_type == UINT32_MAX) {
+        fprintf(stderr, "Failed to find suitable memory type for depth image\n");
+        vkDestroyImage(g_render.device, g_render.depth_image, NULL);
+        g_render.depth_image = VK_NULL_HANDLE;
+        return MC_ERR_VULKAN;
+    }
+
+    VkMemoryAllocateInfo alloc;
+    memset(&alloc, 0, sizeof(alloc));
+    alloc.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc.allocationSize  = mem_req.size;
+    alloc.memoryTypeIndex = mem_type;
+
+    res = vkAllocateMemory(g_render.device, &alloc, NULL, &g_render.depth_memory);
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "vkAllocateMemory (depth) failed: %d\n", res);
+        vkDestroyImage(g_render.device, g_render.depth_image, NULL);
+        g_render.depth_image = VK_NULL_HANDLE;
+        return MC_ERR_VULKAN;
+    }
+
+    vkBindImageMemory(g_render.device, g_render.depth_image, g_render.depth_memory, 0);
+
+    /* Create depth image view */
+    VkImageViewCreateInfo iv_ci;
+    memset(&iv_ci, 0, sizeof(iv_ci));
+    iv_ci.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    iv_ci.image    = g_render.depth_image;
+    iv_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    iv_ci.format   = g_render.depth_format;
+    iv_ci.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT;
+    iv_ci.subresourceRange.baseMipLevel   = 0;
+    iv_ci.subresourceRange.levelCount     = 1;
+    iv_ci.subresourceRange.baseArrayLayer = 0;
+    iv_ci.subresourceRange.layerCount     = 1;
+
+    res = vkCreateImageView(g_render.device, &iv_ci, NULL, &g_render.depth_image_view);
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "vkCreateImageView (depth) failed: %d\n", res);
+        vkFreeMemory(g_render.device, g_render.depth_memory, NULL);
+        vkDestroyImage(g_render.device, g_render.depth_image, NULL);
+        g_render.depth_memory = VK_NULL_HANDLE;
+        g_render.depth_image  = VK_NULL_HANDLE;
+        return MC_ERR_VULKAN;
+    }
+
+    return MC_OK;
+}
+
+void vk_destroy_depth_resources(void)
+{
+    if (g_render.device == VK_NULL_HANDLE) return;
+
+    if (g_render.depth_image_view) {
+        vkDestroyImageView(g_render.device, g_render.depth_image_view, NULL);
+        g_render.depth_image_view = VK_NULL_HANDLE;
+    }
+    if (g_render.depth_image) {
+        vkDestroyImage(g_render.device, g_render.depth_image, NULL);
+        g_render.depth_image = VK_NULL_HANDLE;
+    }
+    if (g_render.depth_memory) {
+        vkFreeMemory(g_render.device, g_render.depth_memory, NULL);
+        g_render.depth_memory = VK_NULL_HANDLE;
+    }
+}
+
 void vk_destroy_swapchain(void)
 {
     if (g_render.device == VK_NULL_HANDLE) return;
@@ -116,6 +238,8 @@ void vk_destroy_swapchain(void)
         free(g_render.framebuffers);
         g_render.framebuffers = NULL;
     }
+
+    vk_destroy_depth_resources();
 
     if (g_render.swapchain_image_views) {
         for (uint32_t i = 0; i < g_render.image_count; i++) {
@@ -138,41 +262,61 @@ void vk_destroy_swapchain(void)
 
 mc_error_t vk_create_render_pass(void)
 {
-    VkAttachmentDescription color_attachment;
-    memset(&color_attachment, 0, sizeof(color_attachment));
-    color_attachment.format         = g_render.swapchain_format;
-    color_attachment.samples        = VK_SAMPLE_COUNT_1_BIT;
-    color_attachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color_attachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-    color_attachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    color_attachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-    color_attachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAttachmentDescription attachments[2];
+    memset(attachments, 0, sizeof(attachments));
+
+    /* Color attachment (index 0) */
+    attachments[0].format         = g_render.swapchain_format;
+    attachments[0].samples        = VK_SAMPLE_COUNT_1_BIT;
+    attachments[0].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments[0].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    attachments[0].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[0].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[0].finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    /* Depth attachment (index 1) */
+    attachments[1].format         = g_render.depth_format;
+    attachments[1].samples        = VK_SAMPLE_COUNT_1_BIT;
+    attachments[1].loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachments[1].storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[1].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[1].initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachments[1].finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkAttachmentReference color_ref;
     color_ref.attachment = 0;
     color_ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+    VkAttachmentReference depth_ref;
+    depth_ref.attachment = 1;
+    depth_ref.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
     VkSubpassDescription subpass;
     memset(&subpass, 0, sizeof(subpass));
-    subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments    = &color_ref;
+    subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount    = 1;
+    subpass.pColorAttachments       = &color_ref;
+    subpass.pDepthStencilAttachment = &depth_ref;
 
     VkSubpassDependency dep;
     memset(&dep, 0, sizeof(dep));
     dep.srcSubpass    = VK_SUBPASS_EXTERNAL;
     dep.dstSubpass    = 0;
-    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dep.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dep.srcAccessMask = 0;
-    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dep.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
     VkRenderPassCreateInfo ci;
     memset(&ci, 0, sizeof(ci));
     ci.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    ci.attachmentCount = 1;
-    ci.pAttachments    = &color_attachment;
+    ci.attachmentCount = 2;
+    ci.pAttachments    = attachments;
     ci.subpassCount    = 1;
     ci.pSubpasses      = &subpass;
     ci.dependencyCount = 1;
@@ -192,12 +336,17 @@ mc_error_t vk_create_framebuffers(void)
     if (!g_render.framebuffers) return MC_ERR_OUT_OF_MEMORY;
 
     for (uint32_t i = 0; i < g_render.image_count; i++) {
+        VkImageView fb_attachments[2] = {
+            g_render.swapchain_image_views[i],
+            g_render.depth_image_view
+        };
+
         VkFramebufferCreateInfo ci;
         memset(&ci, 0, sizeof(ci));
         ci.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         ci.renderPass      = g_render.render_pass;
-        ci.attachmentCount = 1;
-        ci.pAttachments    = &g_render.swapchain_image_views[i];
+        ci.attachmentCount = 2;
+        ci.pAttachments    = fb_attachments;
         ci.width           = g_render.swapchain_extent.width;
         ci.height          = g_render.swapchain_extent.height;
         ci.layers          = 1;
@@ -279,6 +428,9 @@ mc_error_t vk_create_pipeline(void)
     /*
      * NOTE: The graphics pipeline requires compiled SPIR-V shaders.
      * Pipeline creation is deferred until shaders are loaded.
+     * When creating the pipeline, enable depth testing by setting
+     * VkPipelineDepthStencilStateCreateInfo with depthTestEnable=VK_TRUE,
+     * depthWriteEnable=VK_TRUE, depthCompareOp=VK_COMPARE_OP_LESS.
      * For now, the pipeline handle remains VK_NULL_HANDLE and
      * draw calls are no-ops when no pipeline is bound.
      */
