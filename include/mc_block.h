@@ -36,6 +36,7 @@
 #define BLOCK_PISTON           29
 #define BLOCK_REPEATER         30
 #define BLOCK_COMPARATOR       31
+#define BLOCK_SNOW             32
 
 #define BLOCK_TYPE_COUNT       256
 
