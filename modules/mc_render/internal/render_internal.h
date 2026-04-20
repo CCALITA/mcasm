@@ -68,6 +68,13 @@ typedef struct {
     /* Clear color */
     float                    clear_r, clear_g, clear_b;
 
+    /* Sky pipeline */
+    VkPipelineLayout         sky_pipeline_layout;
+    VkPipeline               sky_pipeline;
+
+    /* World time (0-24000 ticks, 24000 = full day/night cycle) */
+    float                    world_time;
+
     /* Fog */
     float                    fog_start, fog_end;
     vec3_t                   fog_color;
@@ -100,6 +107,12 @@ mc_error_t vk_create_sync_objects(void);
 mc_error_t vk_create_pipeline(void);
 
 uint32_t   vk_find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties);
+
+/* Sky rendering */
+mc_error_t sky_create_pipeline(void);
+void       sky_destroy_pipeline(void);
+void       sky_draw(VkCommandBuffer cmd);
+void       sky_update_fog(void);
 
 /* Mesh building -- returns a heap-allocated chunk_mesh_t (caller frees).
  * Returns NULL if section is empty or allocation fails. */

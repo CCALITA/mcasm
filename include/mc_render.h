@@ -24,4 +24,11 @@ void       mc_render_end_frame(void);
 void       mc_render_set_clear_color(float r, float g, float b);
 void       mc_render_set_fog(float start, float end, vec3_t color);
 
+/* Day/night cycle: time_of_day is 0-24000 ticks (24000 = full cycle).
+ * 0-12000 = daytime, 12000-24000 = nighttime.
+ * Dawn at 0-1000, dusk at 11000-13000. */
+void       mc_render_set_time(float time_of_day);
+void       mc_render_advance_time(float delta_ticks);
+float      mc_render_get_time(void);
+
 #endif /* MC_RENDER_H */

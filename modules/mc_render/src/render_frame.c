@@ -1,5 +1,6 @@
 #include "render_internal.h"
 #include "mc_render.h"
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -52,7 +53,14 @@ mc_error_t mc_render_init(void *window_handle, uint32_t width, uint32_t height)
 
         err = vk_create_pipeline();
         if (err != MC_OK) return err;
+
+        err = sky_create_pipeline();
+        if (err != MC_OK) return err;
     }
+
+    /* Default to midday */
+    g_render.world_time = 6000.0f;
+    sky_update_fog();
 
     return MC_OK;
 }
@@ -86,6 +94,8 @@ void mc_render_shutdown(void)
 
     if (g_render.pipeline_layout)
         vkDestroyPipelineLayout(g_render.device, g_render.pipeline_layout, NULL);
+
+    sky_destroy_pipeline();
 
     if (g_render.render_pass)
         vkDestroyRenderPass(g_render.device, g_render.render_pass, NULL);
@@ -288,6 +298,9 @@ void mc_render_begin_frame(const mat4_t *view, const mat4_t *projection)
     rp_info.pClearValues      = &clear_value;
 
     vkCmdBeginRenderPass(cmd, &rp_info, VK_SUBPASS_CONTENTS_INLINE);
+
+    /* Draw sky as background before any terrain */
+    sky_draw(cmd);
 }
 
 void mc_render_draw_terrain(const uint64_t *mesh_handles, uint32_t count)
@@ -398,4 +411,23 @@ void mc_render_set_fog(float start, float end, vec3_t color)
     g_render.fog_start = start;
     g_render.fog_end   = end;
     g_render.fog_color = color;
+}
+
+void mc_render_set_time(float time_of_day)
+{
+    /* Wrap to [0, 24000) range using fmodf for O(1) regardless of input magnitude */
+    time_of_day = fmodf(time_of_day, 24000.0f);
+    if (time_of_day < 0.0f) time_of_day += 24000.0f;
+    g_render.world_time = time_of_day;
+    sky_update_fog();
+}
+
+void mc_render_advance_time(float delta_ticks)
+{
+    mc_render_set_time(g_render.world_time + delta_ticks);
+}
+
+float mc_render_get_time(void)
+{
+    return g_render.world_time;
 }
