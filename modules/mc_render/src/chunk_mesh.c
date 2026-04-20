@@ -1,5 +1,6 @@
 #include "render_internal.h"
 #include "mc_render.h"
+#include "mc_block.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -96,7 +97,7 @@ chunk_mesh_t *build_chunk_mesh_data(const chunk_section_t *section,
         for (int z = 0; z < CHUNK_SIZE_Z; z++) {
             for (int x = 0; x < CHUNK_SIZE_X; x++) {
                 block_id_t block = section->blocks[block_index(x, y, z)];
-                if (block == 0) continue; /* air */
+                if (block == 0 || block == BLOCK_WATER) continue; /* air or water */
 
                 uint8_t light = get_sky_light(section, x, y, z);
                 if (light == 0) light = 8; /* default light for solid blocks */
@@ -106,12 +107,12 @@ chunk_mesh_t *build_chunk_mesh_data(const chunk_section_t *section,
                     int ny = y + FACE_DIRS[face].dy;
                     int nz = z + FACE_DIRS[face].dz;
 
-                    /* If neighbor is inside the section, check if it's air */
+                    /* If neighbor is inside the section, check if it's air or water */
                     if (nx >= 0 && nx < CHUNK_SIZE_X &&
                         ny >= 0 && ny < CHUNK_SIZE_Y &&
                         nz >= 0 && nz < CHUNK_SIZE_Z) {
                         block_id_t neighbor = section->blocks[block_index(nx, ny, nz)];
-                        if (neighbor != 0) continue; /* occluded */
+                        if (neighbor != 0 && neighbor != BLOCK_WATER) continue; /* occluded by opaque */
                     }
                     /* Boundary faces are always emitted (neighbor unknown) */
 
@@ -181,4 +182,133 @@ uint64_t mc_render_build_chunk_mesh(const chunk_section_t *section,
     free(mesh);
 
     return handle;
+}
+
+/*
+ * Water mesh generation: emit quads for water block faces that are
+ * adjacent to air (not adjacent to water or solid blocks).
+ */
+chunk_mesh_t *build_water_mesh_data(const chunk_section_t *section,
+                                    chunk_pos_t chunk_pos, uint8_t section_y)
+{
+    if (!section || section->non_air_count == 0) return NULL;
+
+    /* Count water blocks for allocation sizing */
+    uint32_t water_count = 0;
+    for (uint32_t i = 0; i < BLOCKS_PER_SECTION; i++) {
+        if (section->blocks[i] == BLOCK_WATER) water_count++;
+    }
+    if (water_count == 0) return NULL;
+
+    uint32_t max_verts   = water_count * 6 * 4;
+    uint32_t max_indices = water_count * 6 * 6;
+
+    chunk_vertex_t *vertices = calloc(max_verts, sizeof(chunk_vertex_t));
+    uint32_t       *indices  = calloc(max_indices, sizeof(uint32_t));
+    if (!vertices || !indices) {
+        free(vertices);
+        free(indices);
+        return NULL;
+    }
+
+    uint32_t vert_count = 0;
+    uint32_t idx_count  = 0;
+
+    for (int y = 0; y < CHUNK_SIZE_Y; y++) {
+        for (int z = 0; z < CHUNK_SIZE_Z; z++) {
+            for (int x = 0; x < CHUNK_SIZE_X; x++) {
+                block_id_t block = section->blocks[block_index(x, y, z)];
+                if (block != BLOCK_WATER) continue;
+
+                uint8_t light = get_sky_light(section, x, y, z);
+                if (light == 0) light = 8;
+
+                for (int face = 0; face < 6; face++) {
+                    int nx = x + FACE_DIRS[face].dx;
+                    int ny = y + FACE_DIRS[face].dy;
+                    int nz = z + FACE_DIRS[face].dz;
+
+                    /* Only emit face if neighbor is air (or out of section bounds) */
+                    if (nx >= 0 && nx < CHUNK_SIZE_X &&
+                        ny >= 0 && ny < CHUNK_SIZE_Y &&
+                        nz >= 0 && nz < CHUNK_SIZE_Z) {
+                        block_id_t neighbor = section->blocks[block_index(nx, ny, nz)];
+                        if (neighbor != 0) continue; /* skip water-water and water-solid */
+                    }
+
+                    uint32_t base_vert = vert_count;
+                    uint32_t world_y = (uint32_t)section_y * CHUNK_SIZE_Y + (uint32_t)y;
+
+                    for (int v = 0; v < 4; v++) {
+                        uint32_t vx = (uint32_t)x + (uint32_t)FACE_VERTS[face][v][0];
+                        uint32_t vy = world_y    + (uint32_t)FACE_VERTS[face][v][1];
+                        uint32_t vz = (uint32_t)z + (uint32_t)FACE_VERTS[face][v][2];
+
+                        vertices[vert_count].position_packed = pack_position(vx, vy, vz);
+                        vertices[vert_count].lighting_packed = pack_lighting(light);
+                        vert_count++;
+                    }
+
+                    for (int i = 0; i < 6; i++) {
+                        indices[idx_count++] = base_vert + QUAD_INDICES[i];
+                    }
+                }
+            }
+        }
+    }
+
+    if (vert_count == 0) {
+        free(vertices);
+        free(indices);
+        return NULL;
+    }
+
+    chunk_mesh_t *mesh = calloc(1, sizeof(chunk_mesh_t));
+    if (!mesh) {
+        free(vertices);
+        free(indices);
+        return NULL;
+    }
+
+    chunk_vertex_t *final_verts = realloc(vertices, vert_count * sizeof(chunk_vertex_t));
+    uint32_t       *final_idx   = realloc(indices, idx_count * sizeof(uint32_t));
+    if (!final_verts) final_verts = vertices;
+    if (!final_idx)   final_idx   = indices;
+
+    mesh->vertices     = final_verts;
+    mesh->vertex_count = vert_count;
+    mesh->indices      = final_idx;
+    mesh->index_count  = idx_count;
+    mesh->chunk_pos    = chunk_pos;
+    mesh->section_y    = section_y;
+
+    return mesh;
+}
+
+void mc_render_build_chunk_meshes(const chunk_section_t *section,
+                                  chunk_pos_t chunk_pos, uint8_t section_y,
+                                  uint64_t *out_opaque, uint64_t *out_water)
+{
+    if (out_opaque) *out_opaque = 0;
+    if (out_water)  *out_water  = 0;
+
+    if (!section) return;
+
+    chunk_mesh_t *opaque = build_chunk_mesh_data(section, chunk_pos, section_y);
+    if (opaque) {
+        uint64_t h = mc_render_upload_mesh(opaque);
+        if (out_opaque) *out_opaque = h;
+        free(opaque->vertices);
+        free(opaque->indices);
+        free(opaque);
+    }
+
+    chunk_mesh_t *water = build_water_mesh_data(section, chunk_pos, section_y);
+    if (water) {
+        uint64_t h = mc_render_upload_mesh(water);
+        if (out_water) *out_water = h;
+        free(water->vertices);
+        free(water->indices);
+        free(water);
+    }
 }

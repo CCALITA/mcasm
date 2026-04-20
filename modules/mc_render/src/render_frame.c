@@ -52,6 +52,9 @@ mc_error_t mc_render_init(void *window_handle, uint32_t width, uint32_t height)
 
         err = vk_create_pipeline();
         if (err != MC_OK) return err;
+
+        err = vk_create_water_pipeline();
+        if (err != MC_OK) return err;
     }
 
     return MC_OK;
@@ -86,6 +89,12 @@ void mc_render_shutdown(void)
 
     if (g_render.pipeline_layout)
         vkDestroyPipelineLayout(g_render.device, g_render.pipeline_layout, NULL);
+
+    if (g_render.water_pipeline)
+        vkDestroyPipeline(g_render.device, g_render.water_pipeline, NULL);
+
+    if (g_render.water_pipeline_layout)
+        vkDestroyPipelineLayout(g_render.device, g_render.water_pipeline_layout, NULL);
 
     if (g_render.render_pass)
         vkDestroyRenderPass(g_render.device, g_render.render_pass, NULL);
@@ -290,16 +299,9 @@ void mc_render_begin_frame(const mat4_t *view, const mat4_t *projection)
     vkCmdBeginRenderPass(cmd, &rp_info, VK_SUBPASS_CONTENTS_INLINE);
 }
 
-void mc_render_draw_terrain(const uint64_t *mesh_handles, uint32_t count)
+/* Compute MVP = projection * view */
+static void compute_mvp(mat4_t *out)
 {
-    if (!g_render.active_cmd || !g_render.graphics_pipeline) return;
-    if (!mesh_handles || count == 0) return;
-
-    vkCmdBindPipeline(g_render.active_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      g_render.graphics_pipeline);
-
-    /* Compute MVP = projection * view (no model transform yet) */
-    mat4_t mvp;
     for (int c = 0; c < 4; c++) {
         for (int r = 0; r < 4; r++) {
             float sum = 0.0f;
@@ -307,13 +309,14 @@ void mc_render_draw_terrain(const uint64_t *mesh_handles, uint32_t count)
                 sum += g_render.projection_matrix.m[k * 4 + r] *
                        g_render.view_matrix.m[c * 4 + k];
             }
-            mvp.m[c * 4 + r] = sum;
+            out->m[c * 4 + r] = sum;
         }
     }
+}
 
-    vkCmdPushConstants(g_render.active_cmd, g_render.pipeline_layout,
-                       VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
-
+/* Issue draw calls for a list of mesh handles */
+static void draw_mesh_list(const uint64_t *mesh_handles, uint32_t count)
+{
     for (uint32_t i = 0; i < count; i++) {
         uint64_t h = mesh_handles[i];
         if (h == 0 || h > MAX_MESH_SLOTS) continue;
@@ -333,12 +336,66 @@ void mc_render_draw_terrain(const uint64_t *mesh_handles, uint32_t count)
     }
 }
 
+void mc_render_draw_terrain(const uint64_t *mesh_handles, uint32_t count)
+{
+    if (!g_render.active_cmd || !g_render.graphics_pipeline) return;
+    if (!mesh_handles || count == 0) return;
+
+    vkCmdBindPipeline(g_render.active_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      g_render.graphics_pipeline);
+
+    mat4_t mvp;
+    compute_mvp(&mvp);
+
+    vkCmdPushConstants(g_render.active_cmd, g_render.pipeline_layout,
+                       VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
+
+    draw_mesh_list(mesh_handles, count);
+}
+
 void mc_render_draw_entities(const vec3_t *positions, const uint8_t *types, uint32_t count)
 {
     /* No-op: entity rendering not yet implemented */
     (void)positions;
     (void)types;
     (void)count;
+}
+
+void mc_render_draw_water(const uint64_t *mesh_handles, uint32_t count, float time)
+{
+    if (!g_render.active_cmd || !g_render.water_pipeline_layout) return;
+    if (!mesh_handles || count == 0) return;
+
+    /*
+     * Water pipeline with alpha blending is not yet fully created
+     * (requires compiled SPIR-V shaders). When the water_pipeline is
+     * available, bind it here. For now, fall back to the terrain pipeline.
+     */
+    VkPipeline pipeline = g_render.water_pipeline
+                          ? g_render.water_pipeline
+                          : g_render.graphics_pipeline;
+    VkPipelineLayout layout = g_render.water_pipeline
+                              ? g_render.water_pipeline_layout
+                              : g_render.pipeline_layout;
+
+    if (!pipeline) return;
+
+    vkCmdBindPipeline(g_render.active_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+    struct {
+        float mvp[16];
+        float time;
+    } push_data;
+
+    mat4_t mvp;
+    compute_mvp(&mvp);
+    memcpy(push_data.mvp, mvp.m, sizeof(push_data.mvp));
+    push_data.time = time;
+
+    vkCmdPushConstants(g_render.active_cmd, layout,
+                       VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_data), &push_data);
+
+    draw_mesh_list(mesh_handles, count);
 }
 
 void mc_render_draw_ui(void)

@@ -55,9 +55,13 @@ typedef struct {
     VkFence                  in_flight[MAX_FRAMES_IN_FLIGHT];
     uint32_t                 current_frame;
 
-    /* Pipeline */
+    /* Pipeline -- opaque terrain */
     VkPipelineLayout         pipeline_layout;
     VkPipeline               graphics_pipeline;
+
+    /* Pipeline -- water (transparent) */
+    VkPipelineLayout         water_pipeline_layout;
+    VkPipeline               water_pipeline;
 
     /* Frame state */
     uint32_t                 current_image_index;
@@ -98,12 +102,17 @@ mc_error_t vk_create_framebuffers(void);
 mc_error_t vk_create_command_pool(void);
 mc_error_t vk_create_sync_objects(void);
 mc_error_t vk_create_pipeline(void);
+mc_error_t vk_create_water_pipeline(void);
 
 uint32_t   vk_find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties);
 
 /* Mesh building -- returns a heap-allocated chunk_mesh_t (caller frees).
- * Returns NULL if section is empty or allocation fails. */
+ * Returns NULL if section is empty or allocation fails.
+ * build_chunk_mesh_data emits faces for opaque (non-water) blocks.
+ * build_water_mesh_data emits faces for water blocks adjacent to air. */
 chunk_mesh_t *build_chunk_mesh_data(const chunk_section_t *section,
+                                    chunk_pos_t chunk_pos, uint8_t section_y);
+chunk_mesh_t *build_water_mesh_data(const chunk_section_t *section,
                                     chunk_pos_t chunk_pos, uint8_t section_y);
 
 #endif /* RENDER_INTERNAL_H */

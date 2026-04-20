@@ -3,6 +3,7 @@
 #include <string.h>
 #include "mc_types.h"
 #include "mc_error.h"
+#include "mc_block.h"
 
 #include "render_internal.h"
 
@@ -148,6 +149,131 @@ static int test_section_y_offset(void)
     return 0;
 }
 
+/* Test: water block should not appear in opaque mesh */
+static int test_water_excluded_from_opaque(void)
+{
+    chunk_section_t section;
+    memset(&section, 0, sizeof(section));
+
+    /* Place one water block at (0,0,0) */
+    section.blocks[0] = BLOCK_WATER;
+    section.non_air_count = 1;
+
+    chunk_pos_t cpos = {0, 0};
+    chunk_mesh_t *mesh = build_chunk_mesh_data(&section, cpos, 0);
+
+    ASSERT(mesh == NULL, "water-only section should produce NULL opaque mesh");
+
+    printf("  PASS: test_water_excluded_from_opaque\n");
+    return 0;
+}
+
+/* Test: single water block produces water mesh with 6 faces */
+static int test_single_water_block_mesh(void)
+{
+    chunk_section_t section;
+    memset(&section, 0, sizeof(section));
+
+    section.blocks[0] = BLOCK_WATER;
+    section.non_air_count = 1;
+    section.sky_light[0] = 0x0F;
+
+    chunk_pos_t cpos = {0, 0};
+    chunk_mesh_t *mesh = build_water_mesh_data(&section, cpos, 0);
+
+    ASSERT(mesh != NULL, "water mesh should not be NULL for single water block");
+    ASSERT(mesh->vertex_count == 24, "single water block: 24 vertices (6 faces * 4)");
+    ASSERT(mesh->index_count == 36, "single water block: 36 indices (6 faces * 6)");
+
+    free(mesh->vertices);
+    free(mesh->indices);
+    free(mesh);
+
+    printf("  PASS: test_single_water_block_mesh\n");
+    return 0;
+}
+
+/* Test: two adjacent water blocks do not emit the shared face */
+static int test_adjacent_water_occlusion(void)
+{
+    chunk_section_t section;
+    memset(&section, 0, sizeof(section));
+
+    section.blocks[0] = BLOCK_WATER; /* (0,0,0) */
+    section.blocks[1] = BLOCK_WATER; /* (1,0,0) */
+    section.non_air_count = 2;
+
+    chunk_pos_t cpos = {0, 0};
+    chunk_mesh_t *mesh = build_water_mesh_data(&section, cpos, 0);
+
+    ASSERT(mesh != NULL, "water mesh should not be NULL for two water blocks");
+    ASSERT(mesh->vertex_count == 40, "two adjacent water: 40 verts (10 faces * 4)");
+    ASSERT(mesh->index_count == 60, "two adjacent water: 60 indices (10 faces * 6)");
+
+    free(mesh->vertices);
+    free(mesh->indices);
+    free(mesh);
+
+    printf("  PASS: test_adjacent_water_occlusion\n");
+    return 0;
+}
+
+/* Test: water next to stone -- water face toward stone is not emitted,
+ * but stone face toward water IS emitted in opaque mesh */
+static int test_water_stone_boundary(void)
+{
+    chunk_section_t section;
+    memset(&section, 0, sizeof(section));
+
+    /* Stone at (0,0,0), water at (1,0,0) */
+    section.blocks[0] = 1;           /* stone */
+    section.blocks[1] = BLOCK_WATER; /* water at x=1 */
+    section.non_air_count = 2;
+
+    chunk_pos_t cpos = {0, 0};
+
+    /* Opaque mesh: stone exposes all 6 faces (water counts as transparent) */
+    chunk_mesh_t *opaque = build_chunk_mesh_data(&section, cpos, 0);
+    ASSERT(opaque != NULL, "opaque mesh should not be NULL");
+    ASSERT(opaque->vertex_count == 24, "stone with water neighbor: 24 verts (6 faces)");
+
+    free(opaque->vertices);
+    free(opaque->indices);
+    free(opaque);
+
+    /* Water mesh: water at (1,0,0) has stone neighbor on -X, skip that face.
+     * 5 remaining faces emitted. */
+    chunk_mesh_t *water = build_water_mesh_data(&section, cpos, 0);
+    ASSERT(water != NULL, "water mesh should not be NULL");
+    ASSERT(water->vertex_count == 20, "water next to stone: 20 verts (5 faces * 4)");
+    ASSERT(water->index_count == 30, "water next to stone: 30 indices (5 faces * 6)");
+
+    free(water->vertices);
+    free(water->indices);
+    free(water);
+
+    printf("  PASS: test_water_stone_boundary\n");
+    return 0;
+}
+
+/* Test: section with no water produces NULL water mesh */
+static int test_no_water_section(void)
+{
+    chunk_section_t section;
+    memset(&section, 0, sizeof(section));
+
+    section.blocks[0] = 1; /* stone */
+    section.non_air_count = 1;
+
+    chunk_pos_t cpos = {0, 0};
+    chunk_mesh_t *mesh = build_water_mesh_data(&section, cpos, 0);
+
+    ASSERT(mesh == NULL, "section without water should produce NULL water mesh");
+
+    printf("  PASS: test_no_water_section\n");
+    return 0;
+}
+
 int main(void)
 {
     int failures = 0;
@@ -158,6 +284,11 @@ int main(void)
     failures += test_adjacent_blocks_occlusion();
     failures += test_null_section();
     failures += test_section_y_offset();
+    failures += test_water_excluded_from_opaque();
+    failures += test_single_water_block_mesh();
+    failures += test_adjacent_water_occlusion();
+    failures += test_water_stone_boundary();
+    failures += test_no_water_section();
 
     if (failures > 0) {
         fprintf(stderr, "%d test(s) FAILED\n", failures);
