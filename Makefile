@@ -3,6 +3,17 @@ include toolchain/link.mk
 
 LDFLAGS := $(LDFLAGS_PLATFORM)
 
+# ------- OpenAL link flags -------
+ifeq ($(PLATFORM),macos)
+  OPENAL_LDFLAGS := -framework OpenAL
+else
+  ifeq ($(shell pkg-config --exists openal-soft 2>/dev/null && echo 1),1)
+    OPENAL_LDFLAGS := $(shell pkg-config --libs openal-soft)
+  else
+    OPENAL_LDFLAGS :=
+  endif
+endif
+
 MODULES := mc_memory mc_math mc_platform mc_block mc_world mc_worldgen \
            mc_entity mc_mob_ai mc_physics mc_render mc_audio mc_ui \
            mc_input mc_net mc_save mc_crafting mc_redstone mc_particle \
@@ -21,7 +32,7 @@ SHADER_SPV := $(SHADER_SRC:.glsl=.spv)
 all: mcasm $(SHADER_SPV)
 
 mcasm: $(MODULE_LIBS)
-	$(CC) -o $@ $(foreach lib,$^,-Wl,-force_load,$(lib)) $(LDFLAGS)
+	$(CC) -o $@ $(foreach lib,$^,-Wl,-force_load,$(lib)) $(LDFLAGS) $(OPENAL_LDFLAGS)
 
 define MODULE_TEMPLATE
 modules/$(1)/lib$(1).a: FORCE
