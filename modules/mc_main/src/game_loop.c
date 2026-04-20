@@ -79,7 +79,12 @@ static void render_frame(void)
     }
 
     mc_render_begin_frame(&view, &projection);
-    mc_render_draw_terrain(NULL, 0);
+
+    uint64_t *mesh_handles = NULL;
+    uint32_t  mesh_count   = 0;
+    chunk_mesh_mgr_get_meshes(&mesh_handles, &mesh_count);
+    mc_render_draw_terrain(mesh_handles, mesh_count);
+
     mc_render_draw_entities(NULL, NULL, 0);
     mc_render_draw_ui();
     mc_render_end_frame();
@@ -100,6 +105,8 @@ mc_error_t mc_game_loop_run(const game_config_t *config)
             mc_world_load_chunk(pos);
         }
     }
+
+    chunk_mesh_mgr_init();
 
     /* Create player entity with transform + physics + player components */
     entity_id_t player = mc_entity_create(
@@ -136,6 +143,7 @@ mc_error_t mc_game_loop_run(const game_config_t *config)
         }
 
         mc_platform_poll_events();
+        chunk_mesh_mgr_update();
         render_frame();
     }
 
@@ -143,6 +151,8 @@ mc_error_t mc_game_loop_run(const game_config_t *config)
     if (player != ENTITY_INVALID) {
         mc_entity_destroy(player);
     }
+
+    chunk_mesh_mgr_shutdown();
 
     return MC_OK;
 }
