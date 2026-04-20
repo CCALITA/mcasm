@@ -21,7 +21,7 @@ SHADER_SPV := $(SHADER_SRC:.glsl=.spv)
 all: mcasm $(SHADER_SPV)
 
 mcasm: $(MODULE_LIBS)
-	$(CC) -o $@ $(foreach lib,$^,-Wl,-force_load,$(lib)) $(LDFLAGS)
+	$(CC) -o $@ $(foreach lib,$^,-Wl,-force_load,$(lib)) $(LDFLAGS_PLATFORM)
 
 define MODULE_TEMPLATE
 modules/$(1)/lib$(1).a: FORCE

@@ -1,5 +1,5 @@
 NASM     ?= nasm
-NASMFLAGS = -f $(NASM_FMT) $(NASM_DEFS) -g -w+all -I ../../shared/ -I internal/
+NASMFLAGS = -f $(NASM_FMT) $(NASM_DEFS) -g -w+all -w-reloc-rel-dword -I ../../shared/ -I internal/
 
 ifdef DEBUG
   NASMFLAGS += -DDEBUG
