@@ -1,6 +1,9 @@
 #include "render_internal.h"
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 render_state_t g_render;
 
@@ -15,16 +18,16 @@ mc_error_t vk_init_instance(void)
     app_info.engineVersion      = VK_MAKE_VERSION(0, 1, 0);
     app_info.apiVersion         = VK_API_VERSION_1_0;
 
-    const char *extensions[] = {
-        VK_KHR_SURFACE_EXTENSION_NAME,
+    uint32_t glfw_ext_count = 0;
+    const char **glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
+
+    uint32_t ext_count = glfw_ext_count;
+    const char **extensions = malloc((ext_count + 2) * sizeof(char*));
+    for (uint32_t i = 0; i < glfw_ext_count; i++)
+        extensions[i] = glfw_exts[i];
 #ifdef __APPLE__
-        VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-        "VK_EXT_metal_surface",
-#else
-        "VK_KHR_xcb_surface",
+    extensions[ext_count++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
 #endif
-    };
-    uint32_t ext_count = sizeof(extensions) / sizeof(extensions[0]);
 
     VkInstanceCreateInfo ci;
     memset(&ci, 0, sizeof(ci));
@@ -37,6 +40,7 @@ mc_error_t vk_init_instance(void)
 #endif
 
     VkResult res = vkCreateInstance(&ci, NULL, &g_render.instance);
+    free(extensions);
     if (res != VK_SUCCESS) {
         fprintf(stderr, "vkCreateInstance failed: %d\n", res);
         return MC_ERR_VULKAN;

@@ -2,6 +2,8 @@
 #include "mc_render.h"
 #include <stdlib.h>
 #include <string.h>
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 #include <stdio.h>
 
 /* ---- Init / shutdown ---- */
@@ -32,8 +34,11 @@ mc_error_t mc_render_init(void *window_handle, uint32_t width, uint32_t height)
      * testing or mesh-only workflows.
      */
     if (window_handle) {
-        /* The caller provides a VkSurfaceKHR cast to void* */
-        g_render.surface = (VkSurfaceKHR)(uintptr_t)window_handle;
+        VkResult vk_res = glfwCreateWindowSurface(g_render.instance, (GLFWwindow*)window_handle, NULL, &g_render.surface);
+        if (vk_res != VK_SUCCESS) {
+            fprintf(stderr, "glfwCreateWindowSurface failed: %d\n", vk_res);
+            return MC_ERR_VULKAN;
+        }
 
         err = vk_create_swapchain();
         if (err != MC_OK) return err;
