@@ -22,5 +22,6 @@ void       mc_ui_draw_inventory(void);
 void       mc_ui_show_debug(vec3_t pos, float fps, uint32_t chunk_count, uint32_t entity_count);
 
 void       mc_ui_render(void);
+uint32_t   mc_ui_get_vertices(void* out_buffer, uint32_t max_bytes);
 
 #endif /* MC_UI_H */

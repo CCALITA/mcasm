@@ -98,6 +98,22 @@ typedef struct {
     VkDescriptorPool         atlas_desc_pool;
     VkDescriptorSet          atlas_desc_set;
 
+    /* Sky rendering */
+    VkPipelineLayout         sky_pipeline_layout;
+    VkPipeline               sky_pipeline;
+    float                    world_time;
+
+    /* UI rendering */
+    VkPipelineLayout         ui_pipeline_layout;
+    VkPipeline               ui_pipeline;
+    VkBuffer                 ui_vertex_buffer;
+    VkDeviceMemory           ui_vertex_memory;
+    VkDeviceSize             ui_vertex_capacity;
+
+    /* Water rendering */
+    VkPipelineLayout         water_pipeline_layout;
+    VkPipeline               water_pipeline;
+
     /* Window dimensions */
     uint32_t                 width, height;
 } render_state_t;
@@ -131,5 +147,8 @@ void       vk_destroy_texture_atlas(void);
  * Returns NULL if section is empty or allocation fails. */
 chunk_mesh_t *build_chunk_mesh_data(const chunk_section_t *section,
                                     chunk_pos_t chunk_pos, uint8_t section_y);
+
+mc_error_t vk_create_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                             VkMemoryPropertyFlags props, VkBuffer *buf, VkDeviceMemory *mem);
 
 #endif /* RENDER_INTERNAL_H */

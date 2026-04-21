@@ -149,7 +149,7 @@ static uint32_t find_free_slot(void)
     return UINT32_MAX;
 }
 
-static mc_error_t create_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
+mc_error_t vk_create_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
                                 VkMemoryPropertyFlags props,
                                 VkBuffer *buffer, VkDeviceMemory *memory)
 {
@@ -200,7 +200,7 @@ uint64_t mc_render_upload_mesh(const chunk_mesh_t *mesh)
 
     /* Vertex buffer */
     VkDeviceSize vb_size = mesh->vertex_count * sizeof(chunk_vertex_t);
-    mc_error_t err = create_buffer(vb_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+    mc_error_t err = vk_create_buffer(vb_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                    host_visible, &ms->vertex_buffer, &ms->vertex_memory);
     if (err != MC_OK) return 0;
 
@@ -212,7 +212,7 @@ uint64_t mc_render_upload_mesh(const chunk_mesh_t *mesh)
     /* Index buffer */
     if (mesh->index_count > 0 && mesh->indices) {
         VkDeviceSize ib_size = mesh->index_count * sizeof(uint32_t);
-        err = create_buffer(ib_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        err = vk_create_buffer(ib_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                             host_visible, &ms->index_buffer, &ms->index_memory);
         if (err != MC_OK) {
             vkDestroyBuffer(g_render.device, ms->vertex_buffer, NULL);
@@ -453,7 +453,7 @@ void mc_render_draw_entities(const vec3_t *positions, const uint8_t *types, uint
         }
         g_render.entity_vertex_capacity = 0;
 
-        mc_error_t err = create_buffer(
+        mc_error_t err = vk_create_buffer(
             needed, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             &g_render.entity_vertex_buffer, &g_render.entity_vertex_memory);

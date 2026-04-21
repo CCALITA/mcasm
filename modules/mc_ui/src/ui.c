@@ -36,3 +36,8 @@ void mc_ui_render(void)
        Actual Vulkan submission will be added when mc_render integrates the UI pipeline. */
     g_ui.vert_count = 0;
 }
+
+uint32_t mc_ui_get_vertices(void* out_buffer, uint32_t max_bytes) {
+    (void)out_buffer; (void)max_bytes;
+    return 0;
+}
