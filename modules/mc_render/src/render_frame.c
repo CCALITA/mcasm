@@ -71,6 +71,12 @@ void mc_render_shutdown(void)
 
     vk_destroy_texture_atlas();
 
+    /* Free entity vertex buffer */
+    if (g_render.entity_vertex_buffer)
+        vkDestroyBuffer(g_render.device, g_render.entity_vertex_buffer, NULL);
+    if (g_render.entity_vertex_memory)
+        vkFreeMemory(g_render.device, g_render.entity_vertex_memory, NULL);
+
     for (uint32_t i = 0; i < MAX_MESH_SLOTS; i++) {
         if (g_render.meshes[i].in_use) {
             mc_render_free_mesh((uint64_t)(i + 1));
@@ -252,6 +258,23 @@ void mc_render_update_mesh(uint64_t mesh_handle, const chunk_mesh_t *mesh)
 
 /* ---- Frame rendering ---- */
 
+/* Compute MVP = projection * view (column-major 4x4 multiply) */
+static mat4_t compute_vp_matrix(void)
+{
+    mat4_t mvp;
+    for (int c = 0; c < 4; c++) {
+        for (int r = 0; r < 4; r++) {
+            float sum = 0.0f;
+            for (int k = 0; k < 4; k++) {
+                sum += g_render.projection_matrix.m[k * 4 + r] *
+                       g_render.view_matrix.m[c * 4 + k];
+            }
+            mvp.m[c * 4 + r] = sum;
+        }
+    }
+    return mvp;
+}
+
 void mc_render_begin_frame(const mat4_t *view, const mat4_t *projection)
 {
     if (!g_render.device || !g_render.swapchain) return;
@@ -318,18 +341,7 @@ void mc_render_draw_terrain(const uint64_t *mesh_handles, uint32_t count)
                                 &g_render.atlas_desc_set, 0, NULL);
     }
 
-    /* Compute MVP = projection * view (no model transform yet) */
-    mat4_t mvp;
-    for (int c = 0; c < 4; c++) {
-        for (int r = 0; r < 4; r++) {
-            float sum = 0.0f;
-            for (int k = 0; k < 4; k++) {
-                sum += g_render.projection_matrix.m[k * 4 + r] *
-                       g_render.view_matrix.m[c * 4 + k];
-            }
-            mvp.m[c * 4 + r] = sum;
-        }
-    }
+    mat4_t mvp = compute_vp_matrix();
 
     vkCmdPushConstants(g_render.active_cmd, g_render.pipeline_layout,
                        VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
@@ -353,12 +365,131 @@ void mc_render_draw_terrain(const uint64_t *mesh_handles, uint32_t count)
     }
 }
 
+/* ---- Entity cube helper ---- */
+
+/* Vertices per cube: 6 faces * 2 triangles * 3 verts = 36 */
+#define ENTITY_VERTS_PER_CUBE 36
+
+/*
+ * Generate 36 vertices for a unit cube at the integer block position nearest
+ * to `pos`, using the same packed chunk_vertex_t format as terrain.
+ * Light is set to maximum (15) so entities are always bright.
+ */
+static void generate_entity_cube(const vec3_t *pos, chunk_vertex_t *out)
+{
+    /*
+     * Clamp to the valid range for the packed position field
+     * (x: 0..30, y: 0..510, z: 0..30 so the +1 corner still fits).
+     */
+    int bx = (int)(pos->x);
+    int by = (int)(pos->y);
+    int bz = (int)(pos->z);
+    if (bx < 0)   bx = 0;
+    if (by < 0)   by = 0;
+    if (bz < 0)   bz = 0;
+    if (bx > 30)  bx = 30;
+    if (by > 510) by = 510;
+    if (bz > 30)  bz = 30;
+
+    uint32_t x0 = (uint32_t)bx;
+    uint32_t y0 = (uint32_t)by;
+    uint32_t z0 = (uint32_t)bz;
+    uint32_t x1 = x0 + 1;
+    uint32_t y1 = y0 + 1;
+    uint32_t z1 = z0 + 1;
+
+    #define PK(px, py, pz) \
+        (((px) & 0x1Fu) | (((py) & 0x1FFu) << 5) | (((pz) & 0x1Fu) << 14))
+
+    uint32_t c000 = PK(x0, y0, z0);
+    uint32_t c100 = PK(x1, y0, z0);
+    uint32_t c010 = PK(x0, y1, z0);
+    uint32_t c110 = PK(x1, y1, z0);
+    uint32_t c001 = PK(x0, y0, z1);
+    uint32_t c101 = PK(x1, y0, z1);
+    uint32_t c011 = PK(x0, y1, z1);
+    uint32_t c111 = PK(x1, y1, z1);
+
+    #undef PK
+
+    /* 6 faces, 2 triangles (6 vertices) each, CCW winding */
+    const uint32_t face_verts[6][6] = {
+        /* +X */ {c100, c110, c111, c100, c111, c101},
+        /* -X */ {c001, c011, c010, c001, c010, c000},
+        /* +Y */ {c010, c011, c111, c010, c111, c110},
+        /* -Y */ {c001, c000, c100, c001, c100, c101},
+        /* +Z */ {c101, c111, c011, c101, c011, c001},
+        /* -Z */ {c000, c010, c110, c000, c110, c100},
+    };
+
+    uint32_t vi = 0;
+    for (int f = 0; f < 6; f++) {
+        for (int v = 0; v < 6; v++) {
+            out[vi].position_packed = face_verts[f][v];
+            out[vi].lighting_packed = 15u;
+            vi++;
+        }
+    }
+}
+
 void mc_render_draw_entities(const vec3_t *positions, const uint8_t *types, uint32_t count)
 {
-    /* No-op: entity rendering not yet implemented */
-    (void)positions;
-    (void)types;
-    (void)count;
+    if (!g_render.active_cmd || !g_render.graphics_pipeline) return;
+    if (!positions || !types || count == 0) return;
+
+    (void)types; /* color differentiation deferred until entity shader exists */
+
+    VkDeviceSize needed = (VkDeviceSize)count * ENTITY_VERTS_PER_CUBE * sizeof(chunk_vertex_t);
+
+    /* Grow the entity vertex buffer when the current one is too small */
+    if (needed > g_render.entity_vertex_capacity) {
+        if (g_render.entity_vertex_buffer) {
+            vkDestroyBuffer(g_render.device, g_render.entity_vertex_buffer, NULL);
+            g_render.entity_vertex_buffer = VK_NULL_HANDLE;
+        }
+        if (g_render.entity_vertex_memory) {
+            vkFreeMemory(g_render.device, g_render.entity_vertex_memory, NULL);
+            g_render.entity_vertex_memory = VK_NULL_HANDLE;
+        }
+        g_render.entity_vertex_capacity = 0;
+
+        mc_error_t err = create_buffer(
+            needed, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &g_render.entity_vertex_buffer, &g_render.entity_vertex_memory);
+        if (err != MC_OK) {
+            g_render.entity_vertex_buffer = VK_NULL_HANDLE;
+            g_render.entity_vertex_memory = VK_NULL_HANDLE;
+            return;
+        }
+        g_render.entity_vertex_capacity = needed;
+    }
+
+    /* Upload vertex data for all entity cubes */
+    void *mapped = NULL;
+    if (vkMapMemory(g_render.device, g_render.entity_vertex_memory, 0, needed, 0, &mapped) != VK_SUCCESS)
+        return;
+
+    chunk_vertex_t *verts = (chunk_vertex_t *)mapped;
+    for (uint32_t i = 0; i < count; i++) {
+        generate_entity_cube(&positions[i], &verts[i * ENTITY_VERTS_PER_CUBE]);
+    }
+
+    vkUnmapMemory(g_render.device, g_render.entity_vertex_memory);
+
+    /* Bind pipeline and push VP matrix */
+    vkCmdBindPipeline(g_render.active_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      g_render.graphics_pipeline);
+
+    mat4_t mvp = compute_vp_matrix();
+
+    vkCmdPushConstants(g_render.active_cmd, g_render.pipeline_layout,
+                       VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
+
+    VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(g_render.active_cmd, 0, 1,
+                           &g_render.entity_vertex_buffer, &offset);
+    vkCmdDraw(g_render.active_cmd, count * ENTITY_VERTS_PER_CUBE, 1, 0, 0);
 }
 
 void mc_render_draw_ui(void)
