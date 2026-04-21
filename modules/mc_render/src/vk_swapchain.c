@@ -406,19 +406,40 @@ mc_error_t vk_create_sync_objects(void)
     return MC_OK;
 }
 
+static VkShaderModule load_shader(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "Cannot open shader: %s\n", path);
+        return VK_NULL_HANDLE;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint32_t *code = malloc((size_t)size);
+    fread(code, 1, (size_t)size, f);
+    fclose(f);
+
+    VkShaderModuleCreateInfo ci;
+    memset(&ci, 0, sizeof(ci));
+    ci.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    ci.codeSize = (size_t)size;
+    ci.pCode    = code;
+
+    VkShaderModule mod = VK_NULL_HANDLE;
+    vkCreateShaderModule(g_render.device, &ci, NULL, &mod);
+    free(code);
+    return mod;
+}
+
 mc_error_t vk_create_pipeline(void)
 {
-    /* Pipeline layout with push constant for MVP matrix */
     VkPushConstantRange push_range;
     memset(&push_range, 0, sizeof(push_range));
     push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     push_range.offset     = 0;
-    push_range.size       = sizeof(float) * 16; /* mat4 */
+    push_range.size       = sizeof(float) * 16;
 
-    /*
-     * Ensure the descriptor set layout for the texture atlas sampler exists
-     * before building the pipeline layout.
-     */
     mc_error_t dsl_err = vk_ensure_atlas_desc_layout();
     if (dsl_err != MC_OK) return dsl_err;
 
@@ -434,15 +455,128 @@ mc_error_t vk_create_pipeline(void)
                                           &g_render.pipeline_layout);
     if (res != VK_SUCCESS) return MC_ERR_VULKAN;
 
-    /*
-     * NOTE: The graphics pipeline requires compiled SPIR-V shaders.
-     * Pipeline creation is deferred until shaders are loaded.
-     * When creating the pipeline, enable depth testing by setting
-     * VkPipelineDepthStencilStateCreateInfo with depthTestEnable=VK_TRUE,
-     * depthWriteEnable=VK_TRUE, depthCompareOp=VK_COMPARE_OP_LESS.
-     * For now, the pipeline handle remains VK_NULL_HANDLE and
-     * draw calls are no-ops when no pipeline is bound.
-     */
-    g_render.graphics_pipeline = VK_NULL_HANDLE;
+    VkShaderModule vert = load_shader("modules/mc_render/shaders/terrain.vert.spv");
+    VkShaderModule frag = load_shader("modules/mc_render/shaders/terrain.frag.spv");
+    if (!vert || !frag) {
+        fprintf(stderr, "Failed to load terrain shaders\n");
+        if (vert) vkDestroyShaderModule(g_render.device, vert, NULL);
+        if (frag) vkDestroyShaderModule(g_render.device, frag, NULL);
+        g_render.graphics_pipeline = VK_NULL_HANDLE;
+        return MC_OK;
+    }
+
+    VkPipelineShaderStageCreateInfo stages[2];
+    memset(stages, 0, sizeof(stages));
+    stages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vert;
+    stages[0].pName  = "main";
+    stages[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = frag;
+    stages[1].pName  = "main";
+
+    /* Vertex input: 2 x uint32 per vertex (packed position + packed lighting) */
+    VkVertexInputBindingDescription binding;
+    memset(&binding, 0, sizeof(binding));
+    binding.binding   = 0;
+    binding.stride    = 8;
+    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    VkVertexInputAttributeDescription attrs[2];
+    memset(attrs, 0, sizeof(attrs));
+    attrs[0].location = 0;
+    attrs[0].binding  = 0;
+    attrs[0].format   = VK_FORMAT_R32_UINT;
+    attrs[0].offset   = 0;
+    attrs[1].location = 1;
+    attrs[1].binding  = 0;
+    attrs[1].format   = VK_FORMAT_R32_UINT;
+    attrs[1].offset   = 4;
+
+    VkPipelineVertexInputStateCreateInfo vertex_input;
+    memset(&vertex_input, 0, sizeof(vertex_input));
+    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertex_input.vertexBindingDescriptionCount   = 1;
+    vertex_input.pVertexBindingDescriptions      = &binding;
+    vertex_input.vertexAttributeDescriptionCount = 2;
+    vertex_input.pVertexAttributeDescriptions    = attrs;
+
+    VkPipelineInputAssemblyStateCreateInfo input_asm;
+    memset(&input_asm, 0, sizeof(input_asm));
+    input_asm.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    input_asm.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkViewport viewport = { 0, 0, (float)g_render.swapchain_extent.width,
+                            (float)g_render.swapchain_extent.height, 0.0f, 1.0f };
+    VkRect2D scissor = { {0, 0}, g_render.swapchain_extent };
+
+    VkPipelineViewportStateCreateInfo viewport_state;
+    memset(&viewport_state, 0, sizeof(viewport_state));
+    viewport_state.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewport_state.viewportCount = 1;
+    viewport_state.pViewports    = &viewport;
+    viewport_state.scissorCount  = 1;
+    viewport_state.pScissors     = &scissor;
+
+    VkPipelineRasterizationStateCreateInfo raster;
+    memset(&raster, 0, sizeof(raster));
+    raster.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    raster.polygonMode = VK_POLYGON_MODE_FILL;
+    raster.cullMode    = VK_CULL_MODE_BACK_BIT;
+    raster.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    raster.lineWidth   = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo msaa;
+    memset(&msaa, 0, sizeof(msaa));
+    msaa.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    msaa.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depth;
+    memset(&depth, 0, sizeof(depth));
+    depth.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depth.depthTestEnable  = VK_TRUE;
+    depth.depthWriteEnable = VK_TRUE;
+    depth.depthCompareOp   = VK_COMPARE_OP_LESS;
+
+    VkPipelineColorBlendAttachmentState blend_att;
+    memset(&blend_att, 0, sizeof(blend_att));
+    blend_att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo blend;
+    memset(&blend, 0, sizeof(blend));
+    blend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    blend.attachmentCount = 1;
+    blend.pAttachments    = &blend_att;
+
+    VkGraphicsPipelineCreateInfo pipeline_ci;
+    memset(&pipeline_ci, 0, sizeof(pipeline_ci));
+    pipeline_ci.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeline_ci.stageCount          = 2;
+    pipeline_ci.pStages             = stages;
+    pipeline_ci.pVertexInputState   = &vertex_input;
+    pipeline_ci.pInputAssemblyState = &input_asm;
+    pipeline_ci.pViewportState      = &viewport_state;
+    pipeline_ci.pRasterizationState = &raster;
+    pipeline_ci.pMultisampleState   = &msaa;
+    pipeline_ci.pDepthStencilState  = &depth;
+    pipeline_ci.pColorBlendState    = &blend;
+    pipeline_ci.layout              = g_render.pipeline_layout;
+    pipeline_ci.renderPass          = g_render.render_pass;
+    pipeline_ci.subpass             = 0;
+
+    res = vkCreateGraphicsPipelines(g_render.device, VK_NULL_HANDLE, 1, &pipeline_ci,
+                                    NULL, &g_render.graphics_pipeline);
+
+    vkDestroyShaderModule(g_render.device, vert, NULL);
+    vkDestroyShaderModule(g_render.device, frag, NULL);
+
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "vkCreateGraphicsPipelines failed: %d\n", res);
+        return MC_ERR_VULKAN;
+    }
+
+    fprintf(stderr, "Graphics pipeline created successfully\n");
     return MC_OK;
 }

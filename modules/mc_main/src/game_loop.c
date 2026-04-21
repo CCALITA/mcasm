@@ -5,6 +5,7 @@
 #include "mc_physics.h"
 #include "mc_entity.h"
 #include "mc_world.h"
+#include "mc_worldgen.h"
 #include "mc_redstone.h"
 #include "mc_particle.h"
 #include "mc_render.h"
@@ -14,6 +15,7 @@
 #include "mc_mob_ai.h"
 
 #include <math.h>
+#include <stdio.h>
 
 /* ---- Constants ---- */
 
@@ -137,6 +139,36 @@ static void tick_update(void)
     g_current_tick++;
 }
 
+/* ---- Mesh tracking ---- */
+
+#define MAX_TRACKED_MESHES 8192
+static uint64_t g_mesh_handles[MAX_TRACKED_MESHES];
+static uint32_t g_mesh_count = 0;
+
+static void build_all_chunk_meshes(void)
+{
+    g_mesh_count = 0;
+
+    chunk_pos_t dirty[256];
+    uint32_t dirty_count = 0;
+    mc_world_get_dirty_chunks(dirty, 256, &dirty_count);
+
+    for (uint32_t i = 0; i < dirty_count && g_mesh_count < MAX_TRACKED_MESHES; i++) {
+        const chunk_t *chunk = mc_world_get_chunk(dirty[i]);
+        if (!chunk) continue;
+
+        for (uint8_t sy = 0; sy < SECTION_COUNT; sy++) {
+            if (chunk->sections[sy].non_air_count == 0) continue;
+            if (g_mesh_count >= MAX_TRACKED_MESHES) break;
+
+            uint64_t h = mc_render_build_chunk_mesh(&chunk->sections[sy], dirty[i], sy);
+            if (h != 0) {
+                g_mesh_handles[g_mesh_count++] = h;
+            }
+        }
+    }
+}
+
 static void render_frame(void)
 {
     uint32_t fb_w = 0, fb_h = 0;
@@ -168,7 +200,7 @@ static void render_frame(void)
     }
 
     mc_render_begin_frame(&view, &projection);
-    mc_render_draw_terrain(NULL, 0);
+    mc_render_draw_terrain(g_mesh_handles, g_mesh_count);
     mc_render_draw_entities(NULL, NULL, 0);
     mc_render_draw_ui();
     mc_render_end_frame();
@@ -183,12 +215,24 @@ mc_error_t mc_game_loop_run(const game_config_t *config)
 
     /* Generate initial chunks around origin */
     int32_t rd = config->render_distance;
+    fprintf(stderr, "Generating %d chunks...\n", (2*rd+1)*(2*rd+1));
     for (int32_t cx = -rd; cx <= rd; cx++) {
         for (int32_t cz = -rd; cz <= rd; cz++) {
             chunk_pos_t pos = {cx, cz};
             mc_world_load_chunk(pos);
+
+            /* Generate terrain into the chunk */
+            chunk_t *chunk = (chunk_t*)mc_world_get_chunk(pos);
+            if (chunk) {
+                mc_worldgen_generate_chunk(pos, chunk);
+            }
         }
     }
+    fprintf(stderr, "Chunks generated. Building meshes...\n");
+
+    /* Build initial meshes from all chunks */
+    build_all_chunk_meshes();
+    fprintf(stderr, "Built %u meshes.\n", g_mesh_count);
 
     /* Create player entity with transform + physics + player components */
     g_player_entity = mc_entity_create(
