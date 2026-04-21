@@ -37,6 +37,7 @@ mcasm: $(MODULE_LIBS)
 define MODULE_TEMPLATE
 modules/$(1)/lib$(1).a: FORCE
 	@$$(MAKE) -C modules/$(1) NASM_FMT=$(NASM_FMT) NASM_DEFS="$(NASM_DEFS)" \
+	  NASM_ENABLED=$(NASM_ENABLED) \
 	  CFLAGS_PLATFORM="$(CFLAGS_PLATFORM)" LDFLAGS_PLATFORM="$(LDFLAGS_PLATFORM)"
 endef
 
@@ -57,6 +58,7 @@ test:
 	@for m in $(MODULES); do \
 		echo "=== Testing $$m ==="; \
 		$(MAKE) -C modules/$$m test NASM_FMT=$(NASM_FMT) NASM_DEFS="$(NASM_DEFS)" \
+		  NASM_ENABLED=$(NASM_ENABLED) \
 		  CFLAGS_PLATFORM="$(CFLAGS_PLATFORM)" LDFLAGS_PLATFORM="$(LDFLAGS_PLATFORM)" \
 		  || exit 1; \
 	done

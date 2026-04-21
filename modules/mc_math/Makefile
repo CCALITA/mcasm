@@ -4,11 +4,16 @@ include ../../toolchain/platform.mk
 include ../../toolchain/nasm.mk
 include ../../toolchain/cc.mk
 
-ifeq ($(shell uname -m),x86_64)
+ifeq ($(UNAME_M),x86_64)
   CFLAGS += -msse4.1
 endif
 
-ASM_SRC := $(wildcard src/*.asm)
+ifeq ($(NASM_ENABLED),1)
+  ASM_SRC := $(wildcard src/*.asm)
+else
+  ASM_SRC :=
+endif
+
 C_SRC   := $(wildcard src/*.c)
 ASM_OBJ := $(ASM_SRC:src/%.asm=obj/%.o)
 C_OBJ   := $(C_SRC:src/%.c=obj/%.o)
