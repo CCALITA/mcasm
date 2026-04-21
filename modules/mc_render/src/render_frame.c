@@ -38,6 +38,9 @@ mc_error_t mc_render_init(void *window_handle, uint32_t width, uint32_t height)
         err = vk_create_swapchain();
         if (err != MC_OK) return err;
 
+        err = vk_create_depth_resources();
+        if (err != MC_OK) return err;
+
         err = vk_create_render_pass();
         if (err != MC_OK) return err;
 
@@ -121,6 +124,8 @@ mc_error_t mc_render_resize(uint32_t width, uint32_t height)
 
     mc_error_t err;
     err = vk_create_swapchain();
+    if (err != MC_OK) return err;
+    err = vk_create_depth_resources();
     if (err != MC_OK) return err;
     err = vk_create_framebuffers();
     if (err != MC_OK) return err;
@@ -276,11 +281,14 @@ void mc_render_begin_frame(const mat4_t *view, const mat4_t *projection)
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &begin_info);
 
-    VkClearValue clear_value;
-    clear_value.color.float32[0] = g_render.clear_r;
-    clear_value.color.float32[1] = g_render.clear_g;
-    clear_value.color.float32[2] = g_render.clear_b;
-    clear_value.color.float32[3] = 1.0f;
+    VkClearValue clear_values[2];
+    memset(clear_values, 0, sizeof(clear_values));
+    clear_values[0].color.float32[0] = g_render.clear_r;
+    clear_values[0].color.float32[1] = g_render.clear_g;
+    clear_values[0].color.float32[2] = g_render.clear_b;
+    clear_values[0].color.float32[3] = 1.0f;
+    clear_values[1].depthStencil.depth   = 1.0f;
+    clear_values[1].depthStencil.stencil = 0;
 
     VkRenderPassBeginInfo rp_info;
     memset(&rp_info, 0, sizeof(rp_info));
@@ -289,8 +297,8 @@ void mc_render_begin_frame(const mat4_t *view, const mat4_t *projection)
     rp_info.framebuffer       = g_render.framebuffers[g_render.current_image_index];
     rp_info.renderArea.offset = (VkOffset2D){0, 0};
     rp_info.renderArea.extent = g_render.swapchain_extent;
-    rp_info.clearValueCount   = 1;
-    rp_info.pClearValues      = &clear_value;
+    rp_info.clearValueCount   = 2;
+    rp_info.pClearValues      = clear_values;
 
     vkCmdBeginRenderPass(cmd, &rp_info, VK_SUBPASS_CONTENTS_INLINE);
 }

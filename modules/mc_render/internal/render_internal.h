@@ -41,6 +41,12 @@ typedef struct {
     VkImage*                 swapchain_images;
     VkImageView*             swapchain_image_views;
 
+    /* Depth buffer */
+    VkFormat                 depth_format;
+    VkImage                  depth_image;
+    VkDeviceMemory           depth_memory;
+    VkImageView              depth_image_view;
+
     /* Render pass */
     VkRenderPass             render_pass;
     VkFramebuffer*           framebuffers;
@@ -101,6 +107,8 @@ mc_error_t vk_create_device(void);
 
 mc_error_t vk_create_swapchain(void);
 void       vk_destroy_swapchain(void);
+mc_error_t vk_create_depth_resources(void);
+void       vk_destroy_depth_resources(void);
 mc_error_t vk_create_render_pass(void);
 mc_error_t vk_create_framebuffers(void);
 
