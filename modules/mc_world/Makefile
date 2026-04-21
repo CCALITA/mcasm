@@ -11,7 +11,7 @@ C_OBJ   := $(C_SRC:src/%.c=obj/%.o)
 ALL_OBJ := $(ASM_OBJ) $(C_OBJ)
 LIB     := lib$(MODULE).a
 
-TEST_LINK_DEPS :=
+TEST_LINK_DEPS := -L ../mc_block -lmc_block
 
 .PHONY: all clean
 
