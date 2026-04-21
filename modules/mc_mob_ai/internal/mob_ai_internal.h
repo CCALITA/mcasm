@@ -62,6 +62,9 @@ typedef struct {
 extern mob_entry_t g_mobs[MAX_MOB_ENTITIES];
 extern uint32_t    g_mob_count;
 
+/* Look up a mob entry by entity id (defined in mobs.c). */
+mob_entry_t *mob_find(entity_id_t entity);
+
 /* Mob-specific behavior trees (built once in mobs.c) */
 bt_node_t *mob_build_zombie_tree(void);
 bt_node_t *mob_build_skeleton_tree(void);

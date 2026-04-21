@@ -27,4 +27,8 @@ void       mc_mob_ai_tick(tick_t current_tick);
 
 uint8_t    mc_mob_ai_pathfind(vec3_t start, vec3_t end, vec3_t* out_path, uint32_t max_steps, uint32_t* out_length);
 
+void       mc_mob_ai_set_player_pos(vec3_t pos);
+void       mc_mob_spawning_init(void);
+void       mc_mob_spawning_tick(tick_t tick, vec3_t player_pos);
+
 #endif /* MC_MOB_AI_H */
