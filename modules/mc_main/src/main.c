@@ -85,37 +85,51 @@ int main(int argc, char *argv[])
     CHECK_INIT(mc_memory_init(),  "mc_memory_init");
     init_stage = 1;
 
+    /* Init save early so we can load world meta before mc_world_init */
+    CHECK_INIT(mc_save_init("world"), "mc_save_init");
+    init_stage = 2;
+
+    /* If a saved world exists, override the command-line seed */
+    {
+        uint32_t saved_seed = 0;
+        tick_t   saved_time = 0;
+        uint8_t  saved_mode = 0;
+        if (mc_save_load_world_meta(&saved_seed, &saved_time, &saved_mode) == MC_OK) {
+            config.seed = saved_seed;
+        }
+    }
+
     /* mc_math has no init — pure functions */
 
     CHECK_INIT(mc_platform_init(config.window_width, config.window_height, "mcasm"),
                "mc_platform_init");
-    init_stage = 2;
-
-    CHECK_INIT(mc_block_init(),   "mc_block_init");
     init_stage = 3;
 
-    CHECK_INIT(mc_world_init(config.seed), "mc_world_init");
+    CHECK_INIT(mc_block_init(),   "mc_block_init");
     init_stage = 4;
 
-    CHECK_INIT(mc_worldgen_init(config.seed), "mc_worldgen_init");
+    CHECK_INIT(mc_world_init(config.seed), "mc_world_init");
     init_stage = 5;
 
-    CHECK_INIT(mc_entity_init(),  "mc_entity_init");
+    CHECK_INIT(mc_worldgen_init(config.seed), "mc_worldgen_init");
     init_stage = 6;
+
+    CHECK_INIT(mc_entity_init(),  "mc_entity_init");
+    init_stage = 7;
 
     /* Wire physics to world block query */
     CHECK_INIT(mc_physics_init(mc_world_get_block), "mc_physics_init");
-    init_stage = 7;
-
-    CHECK_INIT(mc_audio_init(),   "mc_audio_init");
     init_stage = 8;
 
-    CHECK_INIT(mc_input_init(),   "mc_input_init");
+    CHECK_INIT(mc_audio_init(),   "mc_audio_init");
     init_stage = 9;
+
+    CHECK_INIT(mc_input_init(),   "mc_input_init");
+    init_stage = 10;
 
     CHECK_INIT(mc_ui_init(config.window_width, config.window_height),
                "mc_ui_init");
-    init_stage = 10;
+    init_stage = 11;
 
     {
         void *win = mc_platform_get_window_handle();
@@ -123,12 +137,9 @@ int main(int argc, char *argv[])
         mc_platform_get_framebuffer_size(&fb_w, &fb_h);
         CHECK_INIT(mc_render_init(win, fb_w, fb_h), "mc_render_init");
     }
-    init_stage = 11;
-
-    CHECK_INIT(mc_net_init(),     "mc_net_init");
     init_stage = 12;
 
-    CHECK_INIT(mc_save_init("world"), "mc_save_init");
+    CHECK_INIT(mc_net_init(),     "mc_net_init");
     init_stage = 13;
 
     CHECK_INIT(mc_crafting_init(), "mc_crafting_init");
@@ -161,18 +172,18 @@ shutdown:
     if (init_stage >= 16) mc_particle_shutdown();
     if (init_stage >= 15) mc_redstone_shutdown();
     if (init_stage >= 14) mc_crafting_shutdown();
-    if (init_stage >= 13) mc_save_shutdown();
-    if (init_stage >= 12) mc_net_shutdown();
-    if (init_stage >= 11) mc_render_shutdown();
-    if (init_stage >= 10) mc_ui_shutdown();
-    if (init_stage >=  9) mc_input_shutdown();
-    if (init_stage >=  8) mc_audio_shutdown();
-    if (init_stage >=  7) mc_physics_shutdown();
-    if (init_stage >=  6) mc_entity_shutdown();
-    if (init_stage >=  5) mc_worldgen_shutdown();
-    if (init_stage >=  4) mc_world_shutdown();
-    if (init_stage >=  3) mc_block_shutdown();
-    if (init_stage >=  2) mc_platform_shutdown();
+    if (init_stage >= 13) mc_net_shutdown();
+    if (init_stage >= 12) mc_render_shutdown();
+    if (init_stage >= 11) mc_ui_shutdown();
+    if (init_stage >= 10) mc_input_shutdown();
+    if (init_stage >=  9) mc_audio_shutdown();
+    if (init_stage >=  8) mc_physics_shutdown();
+    if (init_stage >=  7) mc_entity_shutdown();
+    if (init_stage >=  6) mc_worldgen_shutdown();
+    if (init_stage >=  5) mc_world_shutdown();
+    if (init_stage >=  4) mc_block_shutdown();
+    if (init_stage >=  3) mc_platform_shutdown();
+    if (init_stage >=  2) mc_save_shutdown();
     if (init_stage >=  1) mc_memory_shutdown();
 
     return (err == MC_OK) ? 0 : 1;
