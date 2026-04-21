@@ -438,7 +438,7 @@ mc_error_t vk_create_pipeline(void)
     memset(&push_range, 0, sizeof(push_range));
     push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     push_range.offset     = 0;
-    push_range.size       = sizeof(float) * 16;
+    push_range.size       = sizeof(float) * 20;
 
     mc_error_t dsl_err = vk_ensure_atlas_desc_layout();
     if (dsl_err != MC_OK) return dsl_err;

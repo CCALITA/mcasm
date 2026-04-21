@@ -234,6 +234,9 @@ uint64_t mc_render_upload_mesh(const chunk_mesh_t *mesh)
 
     ms->vertex_count = mesh->vertex_count;
     ms->in_use       = 1;
+    ms->chunk_x      = mesh->chunk_pos.x;
+    ms->chunk_z      = mesh->chunk_pos.z;
+    ms->section_y    = mesh->section_y;
 
     return (uint64_t)(slot + 1); /* 1-based handle */
 }
@@ -336,6 +339,9 @@ void mc_render_draw_terrain(const uint64_t *mesh_handles, uint32_t count)
     if (!g_render.active_cmd || !g_render.graphics_pipeline) return;
     if (!mesh_handles || count == 0) return;
 
+    fprintf(stderr, "draw_terrain: %u meshes, pipeline=%p\n", count, (void*)g_render.graphics_pipeline);
+    fflush(stderr);
+
     vkCmdBindPipeline(g_render.active_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       g_render.graphics_pipeline);
 
@@ -348,14 +354,21 @@ void mc_render_draw_terrain(const uint64_t *mesh_handles, uint32_t count)
 
     mat4_t mvp = compute_vp_matrix();
 
-    vkCmdPushConstants(g_render.active_cmd, g_render.pipeline_layout,
-                       VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
-
     for (uint32_t i = 0; i < count; i++) {
         uint64_t h = mesh_handles[i];
         if (h == 0 || h > MAX_MESH_SLOTS) continue;
         mesh_slot_t *ms = &g_render.meshes[h - 1];
         if (!ms->in_use) continue;
+
+        struct { mat4_t mvp; float offset[4]; } push;
+        push.mvp = mvp;
+        push.offset[0] = (float)ms->chunk_x * CHUNK_SIZE_X;
+        push.offset[1] = 0.0f;
+        push.offset[2] = (float)ms->chunk_z * CHUNK_SIZE_Z;
+        push.offset[3] = 0.0f;
+
+        vkCmdPushConstants(g_render.active_cmd, g_render.pipeline_layout,
+                           VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
 
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(g_render.active_cmd, 0, 1, &ms->vertex_buffer, &offset);
@@ -487,9 +500,15 @@ void mc_render_draw_entities(const vec3_t *positions, const uint8_t *types, uint
                       g_render.graphics_pipeline);
 
     mat4_t mvp = compute_vp_matrix();
+    struct { mat4_t mvp; float offset[4]; } entity_push;
+    entity_push.mvp = mvp;
+    entity_push.offset[0] = 0.0f;
+    entity_push.offset[1] = 0.0f;
+    entity_push.offset[2] = 0.0f;
+    entity_push.offset[3] = 0.0f;
 
     vkCmdPushConstants(g_render.active_cmd, g_render.pipeline_layout,
-                       VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
+                       VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(entity_push), &entity_push);
 
     VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(g_render.active_cmd, 0, 1,

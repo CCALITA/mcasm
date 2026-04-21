@@ -233,18 +233,23 @@ mc_error_t mc_game_loop_run(const game_config_t *config)
     /* Build initial meshes from all chunks */
     build_all_chunk_meshes();
     fprintf(stderr, "Built %u meshes.\n", g_mesh_count);
+    fflush(stderr);
 
     /* Create player entity with transform + physics + player components */
     g_player_entity = mc_entity_create(
         COMPONENT_TRANSFORM | COMPONENT_PHYSICS | COMPONENT_PLAYER
     );
     if (g_player_entity != ENTITY_INVALID) {
-        int32_t spawn_y = mc_world_get_height(0, 0) + 2;
-        vec3_t spawn = {0.0f, (float)spawn_y, 0.0f, 0.0f};
+        int32_t spawn_y = mc_world_get_height(8, 8) + 2;
+        vec3_t spawn = {8.0f, (float)spawn_y, 8.0f, 0.0f};
         mc_entity_set_position(g_player_entity, spawn);
+        fprintf(stderr, "Player spawned at (8, %d, 8)\n", spawn_y);
     }
 
     mc_state_set(GAME_STATE_PLAYING);
+
+    /* Lock cursor for FPS-style mouse look */
+    mc_platform_set_cursor_locked(1);
 
     /* Fixed-timestep accumulator loop */
     double previous = mc_platform_get_time();

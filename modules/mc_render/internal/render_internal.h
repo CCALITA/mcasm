@@ -22,6 +22,9 @@ typedef struct {
     uint32_t       index_count;
     uint32_t       vertex_count;
     uint8_t        in_use;
+    int32_t        chunk_x;
+    int32_t        chunk_z;
+    uint8_t        section_y;
 } mesh_slot_t;
 
 typedef struct {
