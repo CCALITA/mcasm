@@ -78,6 +78,15 @@ typedef struct {
     /* Memory properties */
     VkPhysicalDeviceMemoryProperties mem_props;
 
+    /* Texture atlas */
+    VkImage                  atlas_image;
+    VkDeviceMemory           atlas_memory;
+    VkImageView              atlas_view;
+    VkSampler                atlas_sampler;
+    VkDescriptorSetLayout    atlas_desc_layout;
+    VkDescriptorPool         atlas_desc_pool;
+    VkDescriptorSet          atlas_desc_set;
+
     /* Window dimensions */
     uint32_t                 width, height;
 } render_state_t;
@@ -100,6 +109,10 @@ mc_error_t vk_create_sync_objects(void);
 mc_error_t vk_create_pipeline(void);
 
 uint32_t   vk_find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties);
+
+mc_error_t vk_ensure_atlas_desc_layout(void);
+mc_error_t vk_create_texture_atlas(void);
+void       vk_destroy_texture_atlas(void);
 
 /* Mesh building -- returns a heap-allocated chunk_mesh_t (caller frees).
  * Returns NULL if section is empty or allocation fails. */

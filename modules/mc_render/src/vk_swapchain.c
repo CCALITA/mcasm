@@ -266,9 +266,18 @@ mc_error_t vk_create_pipeline(void)
     push_range.offset     = 0;
     push_range.size       = sizeof(float) * 16; /* mat4 */
 
+    /*
+     * Ensure the descriptor set layout for the texture atlas sampler exists
+     * before building the pipeline layout.
+     */
+    mc_error_t dsl_err = vk_ensure_atlas_desc_layout();
+    if (dsl_err != MC_OK) return dsl_err;
+
     VkPipelineLayoutCreateInfo layout_ci;
     memset(&layout_ci, 0, sizeof(layout_ci));
     layout_ci.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layout_ci.setLayoutCount         = 1;
+    layout_ci.pSetLayouts            = &g_render.atlas_desc_layout;
     layout_ci.pushConstantRangeCount = 1;
     layout_ci.pPushConstantRanges    = &push_range;
 
