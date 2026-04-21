@@ -8,9 +8,11 @@ CFLAGS += -I internal/
 
 ASM_SRC := $(wildcard src/*.asm)
 C_SRC   := $(wildcard src/*.c)
+M_SRC   := $(wildcard src/*.m)
 ASM_OBJ := $(ASM_SRC:src/%.asm=obj/%.o)
 C_OBJ   := $(C_SRC:src/%.c=obj/%.o)
-ALL_OBJ := $(ASM_OBJ) $(C_OBJ)
+M_OBJ   := $(M_SRC:src/%.m=obj/%.o)
+ALL_OBJ := $(ASM_OBJ) $(C_OBJ) $(M_OBJ)
 LIB     := lib$(MODULE).a
 
 TEST_LINK_DEPS := $(LDFLAGS_PLATFORM)
@@ -27,5 +29,8 @@ obj:
 
 clean:
 	rm -rf obj $(LIB) test/bin
+
+obj/%.o: src/%.m | obj
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 include ../../toolchain/test.mk

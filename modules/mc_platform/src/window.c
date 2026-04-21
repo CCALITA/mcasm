@@ -2,6 +2,8 @@
 #include <GLFW/glfw3.h>
 
 #include "mc_platform.h"
+#include <stdlib.h>
+#include <stdio.h>
 
 /* Defined in input.c */
 extern void mc_platform_install_input_callbacks(GLFWwindow* window);
@@ -13,9 +15,28 @@ mc_error_t mc_platform_init(uint32_t width, uint32_t height, const char* title) 
         return MC_ERR_ALREADY_EXISTS;
     }
 
+    /* Ensure Vulkan loader can find MoltenVK on macOS */
+#ifdef __APPLE__
+    if (!getenv("VK_DRIVER_FILES") && !getenv("VK_ICD_FILENAMES")) {
+        const char *icd = "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json";
+        FILE *f = fopen(icd, "r");
+        if (f) { fclose(f); setenv("VK_DRIVER_FILES", icd, 0); }
+        else {
+            icd = "/usr/local/etc/vulkan/icd.d/MoltenVK_icd.json";
+            f = fopen(icd, "r");
+            if (f) { fclose(f); setenv("VK_DRIVER_FILES", icd, 0); }
+        }
+    }
+#endif
+
     if (!glfwInit()) {
         return MC_ERR_PLATFORM;
     }
+
+    /* On macOS with Homebrew, GLFW's glfwVulkanSupported() may return false
+       even though the Vulkan loader is linked and functional, because GLFW
+       tries to dlopen("libvulkan.1.dylib") from standard paths. Skip the
+       check — vkCreateInstance will fail clearly if Vulkan is truly absent. */
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);

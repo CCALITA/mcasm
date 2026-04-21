@@ -21,6 +21,22 @@ mc_error_t vk_init_instance(void)
     uint32_t glfw_ext_count = 0;
     const char **glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
 
+    /* Fallback: if GLFW returns 0 extensions (Homebrew macOS), hardcode them */
+    const char *fallback_exts[] = {
+        VK_KHR_SURFACE_EXTENSION_NAME,
+#ifdef __APPLE__
+        "VK_EXT_metal_surface",
+#else
+        "VK_KHR_xcb_surface",
+#endif
+    };
+    uint32_t fallback_count = sizeof(fallback_exts) / sizeof(fallback_exts[0]);
+
+    if (glfw_ext_count == 0) {
+        glfw_exts = fallback_exts;
+        glfw_ext_count = fallback_count;
+    }
+
     uint32_t ext_count = glfw_ext_count;
     const char **extensions = malloc((ext_count + 2) * sizeof(char*));
     for (uint32_t i = 0; i < glfw_ext_count; i++)

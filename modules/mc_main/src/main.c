@@ -25,6 +25,32 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Ensure MoltenVK is discoverable on macOS without manual env setup */
+static void setup_vulkan_env(void)
+{
+#ifdef __APPLE__
+    if (!getenv("VK_DRIVER_FILES") && !getenv("VK_ICD_FILENAMES")) {
+        /* Try common Homebrew MoltenVK paths */
+        const char *paths[] = {
+            "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json",
+            "/usr/local/etc/vulkan/icd.d/MoltenVK_icd.json",
+            NULL
+        };
+        for (int i = 0; paths[i]; i++) {
+            FILE *f = fopen(paths[i], "r");
+            if (f) {
+                fclose(f);
+                setenv("VK_DRIVER_FILES", paths[i], 0);
+                break;
+            }
+        }
+    }
+    if (!getenv("DYLD_FALLBACK_LIBRARY_PATH")) {
+        setenv("DYLD_FALLBACK_LIBRARY_PATH", "/opt/homebrew/lib:/usr/local/lib:/usr/lib", 0);
+    }
+#endif
+}
+
 /* ---- Defaults ---- */
 
 #define DEFAULT_SEED            12345
@@ -74,6 +100,8 @@ static game_config_t parse_args(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
+    setup_vulkan_env();
+
     game_config_t config = parse_args(argc, argv);
     mc_error_t err = MC_OK;
 

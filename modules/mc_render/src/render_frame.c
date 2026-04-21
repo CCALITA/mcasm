@@ -6,6 +6,10 @@
 #include <GLFW/glfw3.h>
 #include <stdio.h>
 
+#ifdef __APPLE__
+extern VkResult mc_create_metal_surface(VkInstance instance, void *window, VkSurfaceKHR *surface);
+#endif
+
 /* ---- Init / shutdown ---- */
 
 mc_error_t mc_render_init(void *window_handle, uint32_t width, uint32_t height)
@@ -36,8 +40,13 @@ mc_error_t mc_render_init(void *window_handle, uint32_t width, uint32_t height)
     if (window_handle) {
         VkResult vk_res = glfwCreateWindowSurface(g_render.instance, (GLFWwindow*)window_handle, NULL, &g_render.surface);
         if (vk_res != VK_SUCCESS) {
-            fprintf(stderr, "glfwCreateWindowSurface failed: %d\n", vk_res);
-            return MC_ERR_VULKAN;
+#ifdef __APPLE__
+            vk_res = mc_create_metal_surface(g_render.instance, window_handle, &g_render.surface);
+#endif
+            if (vk_res != VK_SUCCESS) {
+                fprintf(stderr, "Failed to create Vulkan surface: %d\n", vk_res);
+                return MC_ERR_VULKAN;
+            }
         }
 
         err = vk_create_swapchain();
@@ -338,9 +347,6 @@ void mc_render_draw_terrain(const uint64_t *mesh_handles, uint32_t count)
 {
     if (!g_render.active_cmd || !g_render.graphics_pipeline) return;
     if (!mesh_handles || count == 0) return;
-
-    fprintf(stderr, "draw_terrain: %u meshes, pipeline=%p\n", count, (void*)g_render.graphics_pipeline);
-    fflush(stderr);
 
     vkCmdBindPipeline(g_render.active_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       g_render.graphics_pipeline);
