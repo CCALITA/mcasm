@@ -38,6 +38,13 @@ game_state_t mc_state_transition(game_state_t current, uint8_t pause_pressed);
 
 mc_error_t mc_game_loop_run(const game_config_t *config);
 
+/* ---- Chunk mesh manager (chunk_mesh_mgr.c) ---- */
+
+void chunk_mesh_mgr_init(void);
+void chunk_mesh_mgr_update(void);
+void chunk_mesh_mgr_get_meshes(uint64_t** out_handles, uint32_t* out_count);
+void chunk_mesh_mgr_shutdown(void);
+
 /* ---- Error (error.c — public API already in mc_error.h) ---- */
 
 #endif /* MC_MAIN_INTERNAL_H */
